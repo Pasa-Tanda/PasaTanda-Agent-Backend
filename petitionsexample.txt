@@ -1,0 +1,68 @@
+curl -i -G \
+  'https://graph.facebook.com/v24.0/2902117086655075?fields=id,name,product_count' \
+  -d 'access_token=EAAMS3BBPkroBQMltJMInMplq9NRCxM3kDwtVQ2lzyFEoXkAcDJ46gqKDgHWuCK6ZBKLZAwZCzabmN9JrmZBF3RSzaFbtiYpqWish9JONCaoZAQxTR1uv5OZAivo3jj9oeTYr4qcXclTatXCZAS9BAWhuZCZAdBZBWlwvd7K8LQDTvNdkH9vDsaJviFDHVC6MtsIFfOLQZDZD'
+
+
+
+  curl -i -X POST \
+  'https://graph.facebook.com/v24.0/2902117086655075/items_batch' \
+  -d 'item_type=PRODUCT_ITEM' \
+  -d 'requests=[
+  {
+    "method": "CREATE",
+    "data": {
+      "id": "test_product_retailer_id_1",
+      "title": "Product 1 Title",
+      "description": "HTML <b>Description</b> of the Product 1",
+      "price": "100.4 USD",
+      "image_link": "image_url_for_product_1",
+      "link": "website_url_for_product_1",
+      "availability": "in stock",
+      "condition": "new",
+      "brand": "brand_name"
+    }
+  },
+  {
+    "method": "CREATE",
+    "data": {
+      "id": "test_product_retailer_id_2",
+      "title": "Product 2 Title",
+      "description": "HTML <b>Description</b> of the Product 2",
+      "price": "120.4 USD",
+      "image_link": "image_url_for_product_2",
+      "link": "website_url_for_product_2",
+      "availability": "in stock",
+      "condition": "new",
+      "brand": "brand_name_for_product_2"
+    }
+  }
+]' \
+  -d 'access_token=EAAMS3BBPkroBQMltJMInMplq9NRCxM3kDwtVQ2lzyFEoXkAcDJ46gqKDgHWuCK6ZBKLZAwZCzabmN9JrmZBF3RSzaFbtiYpqWish9JONCaoZAQxTR1uv5OZAivo3jj9oeTYr4qcXclTatXCZAS9BAWhuZCZAdBZBWlwvd7K8LQDTvNdkH9vDsaJviFDHVC6MtsIFfOLQZDZD'
+
+
+
+
+curl -i -G \
+ 'https://graph.facebook.com/v24.0/2902117086655075/products' \
+ -d 'filter={"name":{"i_contains":"title"}}' \
+ -d 'fields=retailer_id,id,name,category,errors' \
+ -d 'access_token=EAAMS3BBPkroBQMltJMInMplq9NRCxM3kDwtVQ2lzyFEoXkAcDJ46gqKDgHWuCK6ZBKLZAwZCzabmN9JrmZBF3RSzaFbtiYpqWish9JONCaoZAQxTR1uv5OZAivo3jj9oeTYr4qcXclTatXCZAS9BAWhuZCZAdBZBWlwvd7K8LQDTvNdkH9vDsaJviFDHVC6MtsIFfOLQZDZD'
+
+
+
+https://developers.facebook.com/docs/marketing-api/reference/product-item/
+
+https://developers.facebook.com/docs/marketing-api/catalog/guides/manage-catalog-items/catalog-batch-api
+
+https://developers.facebook.com/docs/marketing-api/reference/product-catalog/items_batch/
+
+https://developers.facebook.com/docs/marketing-api/reference/product-catalog/localized_items_batch/
+
+https://developers.facebook.com/docs/marketing-api/reference/product-catalog/items_batch/
+
+
+
+
+
+
+
