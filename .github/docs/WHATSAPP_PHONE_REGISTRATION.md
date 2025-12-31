@@ -190,10 +190,10 @@ echo -e "\n=== Verificación completa ==="
 
 ```bash
 curl -X POST \
-  "https://graph.facebook.com/v24.0/2392249954565713/subscribed_apps" \
-  -H "Authorization: Bearer EAAMS3BBPkroBQMltJMInMplq9NRCxM3kDwtVQ2lzyFEoXkAcDJ46gqKDgHWuCK6ZBKLZAwZCzabmN9JrmZBF3RSzaFbtiYpqWish9JONCaoZAQxTR1uv5OZAivo3jj9oeTYr4qcXclTatXCZAS9BAWhuZCZAdBZBWlwvd7K8LQDTvNdkH9vDsaJviFDHVC6MtsIFfOLQZDZD" \
+  "https://graph.facebook.com/v24.0/1381053106841363/subscribed_apps" \
+  -H "Authorization: Bearer EAAPAN9pkkbMBQc7YSjjKO4XN8h1Hr3FjR7aHPZCJknVqVTWWpdQgwWO0fv29q0VFDOxvZB8CfeqxoIR2TQMvd4mHXWxKOORBERRBIOr3Mgq9b99pztCO9ZCPtsrkVGRcRxZApZAJ0XBibbLdro509qNBKhRXt8yJJhmHSzN7qacYZAEXlALyVtQM4dOCSEfsnCXQZDZD" \
   -d '{                             
-    "data": ["messages"]
+    "data": ["group_status_update"]
   }'
 ```
 

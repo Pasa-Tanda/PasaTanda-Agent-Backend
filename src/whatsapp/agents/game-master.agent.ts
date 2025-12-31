@@ -48,7 +48,7 @@ export class GameMasterAgentService {
         text: `Grupo creado: ${subject}\nWA Group: ${groupResult.id ?? 'pendiente'}\nContrato: pendiente (usa "iniciar tanda" cuando esté listo)`,
       },
     ];
-    }
+  }
 
   async handleStartTanda(params: {
     tenant: TenantContext;

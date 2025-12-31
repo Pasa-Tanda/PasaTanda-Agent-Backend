@@ -35,16 +35,14 @@ export class PaymentWebhookController {
 
     for (const action of actions) {
       if (action.type === 'text' && action.text && action.to) {
-        await this.whatsappService.sendTextMessage(action.to, action.text, {
-          companyId: action.companyId,
-        });
-      } else if (action.type === 'image' && action.imageBase64 && action.to) {
+        await this.whatsappService.sendTextMessage(action.to, action.text, {});
+      } else if (action.type === 'image' && action.base64 && action.to) {
         await this.whatsappService.sendImageFromBase64(
           action.to,
-          action.imageBase64,
+          action.base64,
           action.mimeType,
           action.caption,
-          { companyId: action.companyId },
+          {},
         );
       }
     }
@@ -73,16 +71,14 @@ export class PaymentWebhookController {
 
     for (const action of actions) {
       if (action.type === 'text' && action.text && action.to) {
-        await this.whatsappService.sendTextMessage(action.to, action.text, {
-          companyId: action.companyId,
-        });
-      } else if (action.type === 'image' && action.imageBase64 && action.to) {
+        await this.whatsappService.sendTextMessage(action.to, action.text, {});
+      } else if (action.type === 'image' && action.base64 && action.to) {
         await this.whatsappService.sendImageFromBase64(
           action.to,
-          action.imageBase64,
+          action.base64,
           action.mimeType,
           action.caption,
-          { companyId: action.companyId },
+          {},
         );
       }
     }

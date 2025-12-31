@@ -4,7 +4,6 @@ import { ConfigModule } from '@nestjs/config';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappService } from './whatsapp.service';
 import { PaymentWebhookController } from './payment-webhook.controller';
-import { SupabaseService } from './services/supabase.service';
 import { EncryptionService } from './services/encryption.service';
 import { PinataService } from './services/pinata.service';
 import { PaymentProxyController } from './payment-proxy.controller';
@@ -18,9 +17,10 @@ import { SorobanClientService } from './services/soroban-client.service';
 import { GroupService } from './services/group.service';
 import { VerificationService } from './services/verification.service';
 import { FrontendWebhookService } from './services/frontend-webhook.service';
+import { OnboardingModule } from '../onboarding/onboarding.module';
 
 @Module({
-  imports: [HttpModule, ConfigModule],
+  imports: [HttpModule, ConfigModule, OnboardingModule],
   controllers: [
     WhatsappController,
     PaymentWebhookController,
@@ -29,7 +29,6 @@ import { FrontendWebhookService } from './services/frontend-webhook.service';
   ],
   providers: [
     WhatsappService,
-    SupabaseService,
     EncryptionService,
     PinataService,
     PasatandaOrchestratorService,

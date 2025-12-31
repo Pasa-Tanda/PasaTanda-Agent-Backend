@@ -265,7 +265,6 @@ export class WhatsappService {
         phone: phoneWithPlus,
         verified: true,
         timestamp: Date.now(),
-        whatsappUsername: message.profile?.name,
         whatsappNumber: canonicalSender,
       });
       await this.sendTextMessage(
@@ -276,8 +275,17 @@ export class WhatsappService {
       return;
     }
 
-    const role = this.resolveRole(canonicalSender);
-    this.logger.debug(`Rol resuelto: ${role}`);
+    // Si el mensaje parece un código de verificación pero no coincidió, no lo envíes al orquestador.
+    if (/[A-Z0-9]{6}/i.test(message.text.body)) {
+      await this.sendTextMessage(
+        canonicalSender,
+        'El código ingresado no es válido o ya expiró. Vuelve a solicitarlo desde el formulario y envíalo tal cual aparece.',
+        { tenant },
+      );
+      return;
+    }
+
+    const role = UserRole.CLIENT;
 
     const routerResult = await this.orchestrator.route({
       senderId: canonicalSender,

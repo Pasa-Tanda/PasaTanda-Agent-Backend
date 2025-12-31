@@ -30,9 +30,9 @@ NEXT_PUBLIC_AGENT_BE_URL=http://localhost:3001
 # WhatsApp Bot Number (for verification flow)
 NEXT_PUBLIC_WHATSAPP_AGENT_NUMBER=59177777777
 
-# Stellar/Trustline Config (wETH on Testnet)
-NEXT_PUBLIC_WETH_ASSET_CODE=wETH
-NEXT_PUBLIC_WETH_ASSET_ISSUER=GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56
+# Stellar/Trustline Config (USDC on Testnet)
+NEXT_PUBLIC_USDC_ASSET_CODE=USDC
+NEXT_PUBLIC_USDC_ASSET_ISSUER=GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56
 
 # Frontend Webhook URL (for AgentBE callbacks)
 NEXT_PUBLIC_FRONTEND_URL=http://localhost:3000
@@ -196,7 +196,7 @@ GET /api/orders/550e8400-e29b-41d4-a716-446655440000
     "network": "stellar:testnet",
     "payTo": "GCONTRACT...",
     "maxAmountRequired": "100570000",
-    "asset": "wETH:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56"
+    "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56"
   }
 }
 ```
@@ -499,7 +499,7 @@ const wallet = await connectWallet();
 
 #### checkUsdcTrustline(address)
 
-Verifica si una cuenta tiene trustline para wETH.
+Verifica si una cuenta tiene trustline para USDC.
 
 ```typescript
 import { checkUsdcTrustline } from '@/app/lib/stellar-wallet';
@@ -510,7 +510,7 @@ const status = await checkUsdcTrustline(address);
 
 #### addUsdcTrustline(address)
 
-Crea trustline para wETH. Requiere wallet conectada.
+Crea trustline para USDC. Requiere wallet conectada.
 
 ```typescript
 import { addUsdcTrustline } from '@/app/lib/stellar-wallet';
