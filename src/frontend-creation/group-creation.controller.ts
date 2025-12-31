@@ -6,12 +6,15 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { GroupCreationService } from './group-creation.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Controller('api/frontend')
 export class GroupCreationController {
-  constructor(private readonly groupCreation: GroupCreationService) {}
+  constructor(
+    private readonly groupCreation: GroupCreationService,
+    private readonly whatsapp: WhatsappService,
+  ) {}
 
   @Get('verify')
   async verifyPhone(@Query('phone') phone?: string) {
@@ -50,12 +53,14 @@ export class GroupCreationController {
       success: true,
       verified: status.verified,
       timestamp: status.timestamp,
+      whatsappUsername: status.whatsappUsername ?? null,
       username: status.whatsappUsername ?? null,
+      whatsappNumber: status.whatsappNumber ?? null,
     };
   }
 
   @Post('create-group')
-  createGroup(
+  async createGroup(
     @Body()
     payload: {
       name?: string;
@@ -83,16 +88,42 @@ export class GroupCreationController {
       });
     }
 
-    const groupId = randomUUID();
-    const shareYieldInfo = payload.enableYield ?? true;
+    const { userId, stellarPublicKey, normalizedPhone } = await this.groupCreation.upsertUser({
+      phone: payload.phone!,
+      username: payload.whatsappUsername!,
+      preferredCurrency: payload.currency!,
+    });
+
+    const draftGroup = await this.groupCreation.createDraftGroup({
+      name: payload.name!,
+      amount: payload.amount!,
+      frequencyDays: parseInt(payload.frequency!, 10),
+      yieldEnabled: payload.enableYield ?? true,
+    });
+
+    await this.groupCreation.createMembership({
+      userId,
+      groupDbId: draftGroup.groupDbId,
+      isAdmin: true,
+      turnNumber: 1,
+    });
+
+    // 4. Enviar mensaje de confirmación por WhatsApp
+    await this.whatsapp.sendTextMessage(
+      normalizedPhone,
+      '✅ Has creado tu grupo PasaTanda exitosamente. Envíame los contactos de los miembros que quieras agregar.',
+    );
 
     return {
       success: true,
-      groupId,
+      groupId: draftGroup.groupId,
+      groupDbId: draftGroup.groupDbId,
+      userId,
       status: 'DRAFT',
-      whatsappGroupJid: `group-${groupId}@g.us`,
+      whatsappGroupJid: draftGroup.whatsappGroupJid,
       inviteLink: 'https://chat.whatsapp.com/placeholder',
-      enableYield: shareYieldInfo,
+      enableYield: draftGroup.enableYield,
+      stellarPublicKey,
       message: 'Grupo creado. Comparte el link de invitación.',
     };
   }

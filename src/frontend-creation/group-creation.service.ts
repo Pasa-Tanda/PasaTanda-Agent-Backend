@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../whatsapp/services/supabase.service';
+import { randomUUID } from 'node:crypto';
+import { Keypair } from '@stellar/stellar-sdk';
 
 type VerificationRecord = {
   phone: string;
@@ -28,6 +30,103 @@ export class GroupCreationService {
   private readonly ttlMs = 10 * 60 * 1000;
 
   constructor(private readonly supabase: SupabaseService) {}
+
+  async upsertUser(params: {
+    phone: string;
+    username: string;
+    preferredCurrency: string;
+  }): Promise<{
+    userId: number;
+    stellarPublicKey: string;
+    stellarSecretKey: string;
+    normalizedPhone: string;
+  }> {
+    this.ensureSupabaseReady();
+    const normalizedPhone = this.normalizePhone(params.phone);
+    const stellarKeypair = Keypair.random();
+    const stellarPublicKey = stellarKeypair.publicKey();
+    const stellarSecretKey = stellarKeypair.secret();
+
+    const rows = await this.supabase.query<{ id: number }>(
+      `
+        INSERT INTO users (phone_number, username, stellar_public_key, wallet_secret_enc, preferred_currency, wallet_type)
+        VALUES ($1, $2, $3, $4, $5, 'MANAGED')
+        ON CONFLICT (phone_number)
+        DO UPDATE SET
+          username = EXCLUDED.username,
+          stellar_public_key = EXCLUDED.stellar_public_key,
+          wallet_secret_enc = EXCLUDED.wallet_secret_enc,
+          preferred_currency = EXCLUDED.preferred_currency
+        RETURNING id
+      `,
+      [normalizedPhone, params.username, stellarPublicKey, stellarSecretKey, params.preferredCurrency],
+    );
+
+    const userId = rows[0]?.id;
+    if (!userId) {
+      throw new Error('No se pudo crear o actualizar el usuario');
+    }
+
+    return { userId, stellarPublicKey, stellarSecretKey, normalizedPhone };
+  }
+
+  async createMembership(params: {
+    userId: number;
+    groupDbId: number;
+    isAdmin: boolean;
+    turnNumber?: number;
+  }): Promise<void> {
+    this.ensureSupabaseReady();
+    await this.supabase.query(
+      `
+        INSERT INTO memberships (user_id, group_id, is_admin, turn_number)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (user_id, group_id)
+        DO NOTHING
+      `,
+      [params.userId, params.groupDbId, params.isAdmin, params.turnNumber ?? 1],
+    );
+  }
+
+  async createDraftGroup(params: {
+    name: string;
+    amount: number;
+    frequencyDays: number;
+    yieldEnabled: boolean;
+    whatsappGroupId?: string;
+  }): Promise<{
+    groupId: string;
+    groupDbId: number;
+    whatsappGroupJid: string;
+    enableYield: boolean;
+  }> {
+    this.ensureSupabaseReady();
+    const groupId = randomUUID();
+    const whatsappGroupJid = params.whatsappGroupId ?? `group-${groupId}@g.us`;
+    const shareYieldInfo = params.yieldEnabled;
+
+    const groupRows = await this.supabase.query<{ id: number }>(
+      `
+        INSERT INTO groups (group_whatsapp_id, name, total_cycle_amount_usdc, frequency_days, yield_enabled, status)
+        VALUES ($1, $2, $3, $4, $5, 'DRAFT')
+        RETURNING id
+      `,
+      [
+        whatsappGroupJid,
+        params.name,
+        params.amount,
+        params.frequencyDays,
+        shareYieldInfo,
+      ],
+    );
+
+    const groupDbId = groupRows[0]?.id;
+    if (!groupDbId) {
+      throw new Error('No se pudo crear el grupo');
+    }
+
+    return { groupId, groupDbId, whatsappGroupJid, enableYield: shareYieldInfo };
+  }
 
   async requestVerification(phone: string): Promise<{ code: string; expiresAt: number }> {
     this.ensureSupabaseReady();

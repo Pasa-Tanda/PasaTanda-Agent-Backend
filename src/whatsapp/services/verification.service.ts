@@ -12,14 +12,24 @@ export class VerificationService {
     return { code, expiresAt: new Date(expiresAt) };
   }
 
-  async confirmCode(phone: string, code: string): Promise<boolean> {
+  async confirmCode(phone: string, code: string, whatsappUsername?: string): Promise<boolean> {
     if (!phone || !code) return false;
 
     const success = await this.onboarding.verifyCode(phone, code);
     if (!success) {
       this.logger.debug(`Código OTP inválido para ${phone}`);
+      return false;
     }
-    return success;
+
+    await this.onboarding.confirmVerification({
+      phone,
+      verified: true,
+      timestamp: Date.now(),
+      whatsappUsername,
+      whatsappNumber: phone,
+    });
+
+    return true;
   }
 
   async isVerified(phone: string): Promise<boolean> {
@@ -28,7 +38,7 @@ export class VerificationService {
     return Boolean(status.verified);
   }
 
-  async tryConfirmFromMessage(phone: string, text: string): Promise<boolean> {
+  async tryConfirmFromMessage(phone: string, text: string, whatsappUsername?: string): Promise<boolean> {
     if (!text) return false;
 
     const code = this.extractCodeFromMessage(text);
@@ -43,7 +53,7 @@ export class VerificationService {
       `Verificación: código extraído ${code}, código esperado ${expectedCode} (telefono: ${phone})`,
     );
 
-    return this.confirmCode(phone, code);
+    return this.confirmCode(phone, code, whatsappUsername);
   }
 
   private extractCodeFromMessage(text: string): string | null {

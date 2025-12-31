@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../services/supabase.service';
 import { GroupService } from '../services/group.service';
-import type { RouterAction, TenantContext } from '../whatsapp.types';
+import { GroupCreationService } from '../../frontend-creation/group-creation.service';
+import type { RouterAction } from '../whatsapp.types';
 
 interface CreateGroupPayload {
   subject: string;
@@ -18,29 +19,48 @@ export class GameMasterAgentService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly groupService: GroupService,
+    private readonly groupCreation: GroupCreationService,
   ) {}
 
   async handleCreateGroup(params: {
-    tenant: TenantContext;
+    phoneNumberId?: string;
     sender: string;
     payload: CreateGroupPayload;
   }): Promise<RouterAction[]> {
     const subject = params.payload.subject || `PasaTanda ${new Date().getMonth() + 1}`;
     const participants = Array.from(new Set([params.sender, ...params.payload.participants])).filter(Boolean);
 
-    // Crear grupo en WhatsApp
-    const groupResult = await this.groupService.createGroup(
-      params.tenant.phoneNumberId,
-      { subject, participants },
-    );
+    if (!params.phoneNumberId) {
+      throw new Error('No hay phone_number_id configurado para crear grupos de WhatsApp');
+    }
 
-    // Persistir en Supabase sin contrato (DRAFT)
-    await this.supabase.query(
-      `INSERT INTO groups (group_whatsapp_id, name, contract_address, total_cycle_amount_usdc, frequency_days, yield_enabled, status)
-       VALUES ($1, $2, NULL, $3, $4, $5, 'DRAFT')
-       ON CONFLICT (group_whatsapp_id) DO UPDATE SET name = EXCLUDED.name` as string,
-      [groupResult.id ?? null, subject, params.payload.amountUsd ?? 1, params.payload.frequencyDays ?? 7, params.payload.yieldEnabled ?? true],
-    );
+    // Crear grupo en WhatsApp
+    const groupResult = await this.groupService.createGroup(params.phoneNumberId, {
+      subject,
+      participants,
+    });
+
+    // Crear usuario + membresía y grupo draft en base de datos
+    const user = await this.groupCreation.upsertUser({
+      phone: params.sender,
+      username: params.sender,
+      preferredCurrency: 'USD',
+    });
+
+    const draftGroup = await this.groupCreation.createDraftGroup({
+      name: subject,
+      amount: params.payload.amountUsd ?? 1,
+      frequencyDays: params.payload.frequencyDays ?? 7,
+      yieldEnabled: params.payload.yieldEnabled ?? true,
+      whatsappGroupId: groupResult.id,
+    });
+
+    await this.groupCreation.createMembership({
+      userId: user.userId,
+      groupDbId: draftGroup.groupDbId,
+      isAdmin: true,
+      turnNumber: 1,
+    });
 
     return [
       {
@@ -51,7 +71,6 @@ export class GameMasterAgentService {
   }
 
   async handleStartTanda(params: {
-    tenant: TenantContext;
     sender: string;
     groupId?: string;
     amountUsd?: number;
@@ -124,7 +143,6 @@ export class GameMasterAgentService {
     ];
   }
   async handleCheckStatus(params: {
-    tenant: TenantContext;
     groupId?: string;
   }): Promise<RouterAction[]> {
     if (!params.groupId) {

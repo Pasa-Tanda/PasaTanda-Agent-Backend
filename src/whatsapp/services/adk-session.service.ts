@@ -3,7 +3,6 @@ import type {
   AdkSessionSnapshot,
   Intent,
   SanitizedTextResult,
-  TenantContext,
   UserRole,
 } from '../whatsapp.types';
 import { SupabaseService } from './supabase.service';
@@ -22,14 +21,15 @@ export class AdkSessionService {
   constructor(private readonly supabase: SupabaseService) {}
 
   async loadSession(
-    tenant: TenantContext,
+    companyId: string,
+    companyName: string,
     senderId: string,
     role: UserRole,
   ): Promise<AdkSessionSnapshot> {
-    const sessionId = this.buildSessionId(tenant.companyId, senderId);
+    const sessionId = this.buildSessionId(companyId, senderId);
     const existing = await this.fetchSession(sessionId);
 
-    const baseContext = this.buildBaseContext(tenant, role);
+    const baseContext = this.buildBaseContext(companyName, role);
     let mergedContext = { ...baseContext };
 
     if (existing) {
@@ -46,7 +46,7 @@ export class AdkSessionService {
 
     const snapshot: AdkSessionSnapshot = {
       sessionId,
-      companyId: tenant.companyId,
+      companyId,
       senderId,
       context: mergedContext,
     };
@@ -131,20 +131,12 @@ export class AdkSessionService {
     return {};
   }
 
-  private buildBaseContext(tenant: TenantContext, role: UserRole) {
-    const config = tenant.companyConfig ?? {};
-    const tone =
-      (config.company_tone as string) ??
-      (config.companyTone as string) ??
-      (config.tone as string) ??
-      'Neutral';
-    const inventoryContext =
-      (config.inventory_context as string) ??
-      (config.inventoryContext as string) ??
-      'Inventario General';
+  private buildBaseContext(companyName: string, role: UserRole) {
+    const tone = 'Neutral';
+    const inventoryContext = 'Inventario General';
 
     return {
-      company_name: tenant.companyName,
+      company_name: companyName,
       company_tone: tone,
       inventory_context: inventoryContext,
       today_date: new Date().toISOString().slice(0, 10),

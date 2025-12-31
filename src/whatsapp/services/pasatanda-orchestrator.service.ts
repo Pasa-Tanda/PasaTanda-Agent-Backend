@@ -24,6 +24,7 @@ interface ClassificationResult {
 export class PasatandaOrchestratorService {
   private readonly logger = new Logger(PasatandaOrchestratorService.name);
   private readonly runner: InMemoryRunner;
+  private readonly companyId: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -31,6 +32,7 @@ export class PasatandaOrchestratorService {
     private readonly treasurer: TreasurerAgentService,
     private readonly validator: ValidatorAgentService,
   ) {
+    this.companyId = this.config.get<string>('COMPANY_ID', 'pasatanda-default');
     const apiKey = this.config.get<string>('GOOGLE_GENAI_API_KEY', '');
     const model = new Gemini({
       apiKey,
@@ -62,12 +64,16 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
   }
 
   async route(context: RouterMessageContext): Promise<{ intent: PasatandaIntent; actions: RouterAction[] }> {
+    const phoneNumberId =
+      context.phoneNumberId ||
+      this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID', '') ||
+      this.config.get<string>('PHONE_NUMBER_ID', '');
+
     const classification = await this.classify(context);
 
     switch (classification.intent) {
       case 'PAY_QUOTA': {
         const actions = await this.treasurer.handlePaymentRequest({
-          tenant: context.tenant,
           sender: context.senderId,
           payload: {
             amountUsd: Number(classification.entities.amountUsd ?? classification.entities.amount ?? 1),
@@ -79,14 +85,13 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
       }
       case 'CHECK_STATUS': {
         const actions = await this.gameMaster.handleCheckStatus({
-          tenant: context.tenant,
           groupId: classification.entities.groupId ?? classification.entities.group_whatsapp_id,
         });
         return { intent: classification.intent, actions };
       }
       case 'CREATE_GROUP': {
         const actions = await this.gameMaster.handleCreateGroup({
-          tenant: context.tenant,
+          phoneNumberId,
           sender: context.senderId,
           payload: {
             subject: classification.entities.subject ?? classification.entities.groupName ?? 'PasaTanda',
@@ -100,7 +105,6 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
       }
       case 'START_TANDA': {
         const actions = await this.gameMaster.handleStartTanda({
-          tenant: context.tenant,
           sender: context.senderId,
           groupId: classification.entities.groupId ?? context.groupId,
           amountUsd: classification.entities.amountUsd,
@@ -128,7 +132,7 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
   }
 
   private async classify(context: RouterMessageContext): Promise<ClassificationResult> {
-    const sessionId = `${context.tenant.companyId}:${context.senderId}`;
+    const sessionId = `${this.companyId}:${context.senderId}`;
     const prompt = `${context.originalText}`;
 
     let raw = '';

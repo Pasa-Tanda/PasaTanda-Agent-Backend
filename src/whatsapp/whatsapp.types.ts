@@ -40,15 +40,6 @@ export interface SanitizedTextResult {
   tokens: SanitizationToken[];
 }
 
-export interface TenantContext {
-  companyId: string;
-  companyName: string;
-  companyConfig: Record<string, any>;
-  phoneNumberId: string;
-  adminPhoneIds: string[];
-  displayPhoneNumber?: string | null;
-}
-
 export interface AdkSessionSnapshot {
   sessionId: string;
   companyId: string;
@@ -70,7 +61,7 @@ export interface RouterMessageContext {
   whatsappMessageId: string;
   originalText: string;
   message: WhatsAppIncomingMessage;
-  tenant: TenantContext;
+  phoneNumberId?: string;
   role: UserRole;
   groupId?: string;
   adkSession?: AdkSessionSnapshot;

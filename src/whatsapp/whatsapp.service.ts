@@ -14,12 +14,10 @@ import { PasatandaOrchestratorService } from './services/pasatanda-orchestrator.
 import { PinataService } from './services/pinata.service';
 import { VerificationService } from './services/verification.service';
 import { FrontendWebhookService } from './services/frontend-webhook.service';
-import type { RouterAction, TenantContext } from './whatsapp.types';
+import type { RouterAction } from './whatsapp.types';
 import { UserRole } from './whatsapp.types';
 
 interface MessageContextOptions {
-  tenant?: TenantContext;
-  companyId?: string;
   phoneNumberId?: string;
 }
 
@@ -45,10 +43,9 @@ export class WhatsappService {
       'WHATSAPP_API_VERSION',
       'v21.0',
     );
-    this.defaultPhoneNumberId = this.configService.get<string>(
-      'WHATSAPP_PHONE_NUMBER_ID',
-      '',
-    );
+    this.defaultPhoneNumberId =
+      this.configService.get<string>('WHATSAPP_PHONE_NUMBER_ID', '') ||
+      this.configService.get<string>('PHONE_NUMBER_ID', '');
     this.apiToken = this.configService.get<string>('META_API_TOKEN', '');
   }
 
@@ -88,8 +85,7 @@ export class WhatsappService {
       for (const entry of body.entry) {
         for (const change of entry.changes) {
           const value = change.value;
-          const phoneNumberId = value.metadata?.phone_number_id;
-          const tenant = this.buildTenantContext(phoneNumberId);
+          const phoneNumberId = value.metadata?.phone_number_id ?? this.defaultPhoneNumberId;
 
           // Procesar mensajes
           if (value.messages && value.messages.length > 0) {
@@ -98,7 +94,16 @@ export class WhatsappService {
                 value.contacts,
                 message.from,
               );
-              await this.handleMessage(message, tenant, contactWaId);
+              const contactName = this.resolveContactName(
+                value.contacts,
+                message.from,
+              );
+              await this.handleMessage(
+                message,
+                phoneNumberId,
+                contactWaId,
+                contactName,
+              );
             }
           }
 
@@ -125,8 +130,9 @@ export class WhatsappService {
    */
   private async handleMessage(
     message: WhatsAppIncomingMessage,
-    tenant: TenantContext,
+    phoneNumberId: string,
     contactWaId?: string,
+    contactName?: string,
   ): Promise<void> {
     if (this.isDuplicateMessage(message.id)) {
       this.logger.warn(
@@ -162,49 +168,54 @@ export class WhatsappService {
     }
 
     // Marcar el mensaje como leído
-    await this.markAsRead(message.id, tenant);
+    await this.markAsRead(message.id, phoneNumberId);
 
     switch (message.type) {
       case 'text':
         if (message.text) {
           this.logger.log(`Texto: ${message.text.body}`);
-          await this.handleTextMessage(message, tenant, contactWaId);
+          await this.handleTextMessage(
+            message,
+            phoneNumberId,
+            contactWaId,
+            contactName,
+          );
         }
         break;
 
       case 'image':
         this.logger.log('Imagen recibida:', message.image);
-        await this.handleMediaMessage(message, 'image', tenant);
+        await this.handleMediaMessage(message, 'image', phoneNumberId);
         break;
 
       case 'video':
         this.logger.log('Video recibido:', message.video);
-        await this.handleMediaMessage(message, 'video', tenant);
+        await this.handleMediaMessage(message, 'video', phoneNumberId);
         break;
 
       case 'audio':
         this.logger.log('Audio recibido:', message.audio);
-        await this.handleMediaMessage(message, 'audio', tenant);
+        await this.handleMediaMessage(message, 'audio', phoneNumberId);
         break;
 
       case 'document':
         this.logger.log('Documento recibido:', message.document);
-        await this.handleMediaMessage(message, 'document', tenant);
+        await this.handleMediaMessage(message, 'document', phoneNumberId);
         break;
 
       case 'location':
         this.logger.log('Ubicación recibida:', message.location);
-        await this.handleLocationMessage(message, tenant);
+        await this.handleLocationMessage(message, phoneNumberId);
         break;
 
       case 'interactive':
         this.logger.log('Interacción recibida:', message.interactive);
-        await this.handleInteractiveMessage(message, tenant);
+        await this.handleInteractiveMessage(message, phoneNumberId);
         break;
 
       case 'button':
         this.logger.log('Botón presionado');
-        await this.handleButtonMessage(message, tenant);
+        await this.handleButtonMessage(message, phoneNumberId);
         break;
 
       case 'reaction':
@@ -244,17 +255,19 @@ export class WhatsappService {
    */
   private async handleTextMessage(
     message: WhatsAppIncomingMessage,
-    tenant: TenantContext,
+    phoneNumberId: string,
     contactWaId?: string,
+    contactName?: string,
   ): Promise<void> {
     if (!message.text) return;
 
     const canonicalSender = contactWaId ?? message.from;
-    this.logger.log(`📨 Procesando mensaje de ${canonicalSender} para empresa ${tenant.companyName}`);
+    this.logger.log(`📨 Procesando mensaje de ${canonicalSender}`);
 
     const verifiedNow = await this.verificationService.tryConfirmFromMessage(
       canonicalSender,
       message.text.body,
+      contactName,
     );
 
     if (verifiedNow) {
@@ -267,7 +280,7 @@ export class WhatsappService {
       await this.sendTextMessage(
         canonicalSender,
         '✔️ Verificamos tu teléfono. Ahora completa el formulario en la web y presiona "Crear Tanda".',
-        { tenant },
+        { phoneNumberId },
       );
       return;
     }
@@ -277,7 +290,7 @@ export class WhatsappService {
       await this.sendTextMessage(
         canonicalSender,
         'El código ingresado no es válido o ya expiró. Vuelve a solicitarlo desde el formulario y envíalo tal cual aparece.',
-        { tenant },
+        { phoneNumberId },
       );
       return;
     }
@@ -289,7 +302,7 @@ export class WhatsappService {
       whatsappMessageId: message.id,
       originalText: message.text.body,
       message,
-      tenant,
+      phoneNumberId,
       role,
       groupId: message.group?.id ?? (message as any)?.group_id ?? (message.context as any)?.group_id,
     });
@@ -297,7 +310,7 @@ export class WhatsappService {
     this.logger.debug(`Despachando ${routerResult.actions.length} acciones...`);
     for (const action of routerResult.actions) {
       const recipient = action.to ?? canonicalSender;
-      await this.dispatchAction(recipient, action, tenant);
+      await this.dispatchAction(recipient, action, phoneNumberId);
     }
 
     this.logger.log(`✅ Mensaje procesado completamente para ${canonicalSender}`);
@@ -309,7 +322,7 @@ export class WhatsappService {
   private async handleMediaMessage(
     message: WhatsAppIncomingMessage,
     mediaType: 'image' | 'video' | 'audio' | 'document',
-    tenant: TenantContext,
+    phoneNumberId: string,
   ): Promise<void> {
     const media = message[mediaType];
     if (!media) return;
@@ -324,7 +337,7 @@ export class WhatsappService {
     await this.sendTextMessage(
       message.from,
       `Recibí tu ${mediaType === 'image' ? 'imagen' : mediaType === 'video' ? 'video' : mediaType === 'audio' ? 'audio' : 'documento'}. Para continuar necesito una instrucción en texto (ej. "Pagar 1250" o "Agendar cita").`,
-      { tenant },
+      { phoneNumberId },
     );
   }
 
@@ -333,7 +346,7 @@ export class WhatsappService {
    */
   private async handleLocationMessage(
     message: WhatsAppIncomingMessage,
-    tenant: TenantContext,
+    phoneNumberId: string,
   ): Promise<void> {
     if (!message.location) return;
 
@@ -348,7 +361,7 @@ export class WhatsappService {
     await this.sendTextMessage(
       message.from,
       'Ubicación recibida. Confírmame en texto cómo deseas usarla y la enrutamos al agente correspondiente.',
-      { tenant },
+      { phoneNumberId },
     );
   }
 
@@ -357,7 +370,7 @@ export class WhatsappService {
    */
   private async handleInteractiveMessage(
     message: WhatsAppIncomingMessage,
-    tenant: TenantContext,
+    phoneNumberId: string,
   ): Promise<void> {
     if (!message.interactive) return;
 
@@ -369,7 +382,7 @@ export class WhatsappService {
       await this.sendTextMessage(
         message.from,
         `Seleccionaste ${message.interactive.button_reply.title}. Escríbeme en texto qué operación deseas (cita, pagar, reporte o token).`,
-        { tenant },
+        { phoneNumberId },
       );
     } else if (message.interactive.list_reply) {
       this.logger.log(
@@ -379,7 +392,7 @@ export class WhatsappService {
       await this.sendTextMessage(
         message.from,
         `Seleccionaste ${message.interactive.list_reply.title}. Continúa en texto para completar la solicitud.`,
-        { tenant },
+        { phoneNumberId },
       );
     }
   }
@@ -389,7 +402,7 @@ export class WhatsappService {
    */
   private async handleButtonMessage(
     message: WhatsAppIncomingMessage,
-    tenant: TenantContext,
+    phoneNumberId: string,
   ): Promise<void> {
     this.logger.log('Botón presionado en el mensaje');
     // La lógica específica depende del tipo de botón
@@ -397,7 +410,7 @@ export class WhatsappService {
     await this.sendTextMessage(
       message.from,
       'Recibí tu selección. Envíame la instrucción en texto para activarla en el orquestador.',
-      { tenant },
+      { phoneNumberId },
     );
   }
 
@@ -446,15 +459,17 @@ export class WhatsappService {
     return match?.wa_id ?? contacts[0]?.wa_id;
   }
 
-  private buildTenantContext(phoneNumberId?: string): TenantContext {
-    const resolvedPhoneId = phoneNumberId ?? this.defaultPhoneNumberId;
-    return {
-      companyId: 'pasatanda-default',
-      companyName: 'PasaTanda',
-      companyConfig: {},
-      phoneNumberId: resolvedPhoneId,
-      adminPhoneIds: [],
-    };
+  private resolveContactName(
+    contacts: WhatsAppContact[] | undefined,
+    messageFrom: string,
+  ): string | undefined {
+    if (!contacts?.length) {
+      return undefined;
+    }
+
+    const match = contacts.find((contact) => contact.wa_id === messageFrom);
+    const target = match ?? contacts[0];
+    return target?.profile?.name;
   }
 
   private resolveRole(sender: string): UserRole {
@@ -470,11 +485,11 @@ export class WhatsappService {
   private async dispatchAction(
     recipient: string,
     action: RouterAction,
-    tenant: TenantContext,
+    phoneNumberId: string,
   ): Promise<void> {
     switch (action.type) {
       case 'text':
-        await this.sendTextMessage(recipient, action.text, { tenant });
+        await this.sendTextMessage(recipient, action.text, { phoneNumberId });
         break;
       case 'image': {
         // Intentar subir a Pinata primero para obtener URL pública
@@ -490,7 +505,7 @@ export class WhatsappService {
               recipient,
               publicUrl,
               action.caption,
-              { tenant },
+              { phoneNumberId },
             );
             break;
           }
@@ -500,18 +515,18 @@ export class WhatsappService {
         
         // Fallback: subir imagen a Meta directamente
         const buffer = Buffer.from(action.base64, 'base64');
-        const { phoneNumberId } = await this.resolvePhoneNumberId({ tenant });
+        const { phoneNumberId: resolvedPhoneId } = await this.resolvePhoneNumberId({ phoneNumberId });
         const mediaId = await this.uploadMedia(
           buffer,
           action.mimeType ?? 'image/png',
           `image-${Date.now()}.png`,
-          phoneNumberId,
+          resolvedPhoneId,
         );
         await this.sendImageMessage(
           recipient,
           mediaId,
           action.caption,
-          { tenant },
+          { phoneNumberId: resolvedPhoneId },
         );
         break;
       }
@@ -925,23 +940,13 @@ export class WhatsappService {
 
   private async resolvePhoneNumberId(
     options?: MessageContextOptions,
-  ): Promise<{ phoneNumberId: string; tenant?: TenantContext }> {
-    if (options?.tenant?.phoneNumberId) {
-      return {
-        phoneNumberId: options.tenant.phoneNumberId,
-        tenant: options.tenant,
-      };
-    }
-
+  ): Promise<{ phoneNumberId: string }> {
     if (options?.phoneNumberId) {
-      return {
-        phoneNumberId: options.phoneNumberId,
-        tenant: options.tenant,
-      };
+      return { phoneNumberId: options.phoneNumberId };
     }
 
     if (this.defaultPhoneNumberId) {
-      return { phoneNumberId: this.defaultPhoneNumberId, tenant: this.buildTenantContext(this.defaultPhoneNumberId) };
+      return { phoneNumberId: this.defaultPhoneNumberId };
     }
 
     throw new Error(
@@ -954,12 +959,12 @@ export class WhatsappService {
    */
   private async markAsRead(
     messageId: string,
-    tenant: TenantContext,
+    phoneNumberId: string,
   ): Promise<void> {
     try {
       await firstValueFrom(
         this.httpService.post(
-          this.getMessagesEndpoint(tenant.phoneNumberId),
+          this.getMessagesEndpoint(phoneNumberId),
           {
             messaging_product: 'whatsapp',
             status: 'read',

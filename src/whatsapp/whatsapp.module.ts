@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { WhatsappController } from './whatsapp.controller';
@@ -20,7 +20,7 @@ import { FrontendWebhookService } from './services/frontend-webhook.service';
 import { OnboardingModule } from '../frontend-creation/onboarding.module';
 
 @Module({
-  imports: [HttpModule, ConfigModule, OnboardingModule],
+  imports: [HttpModule, ConfigModule, forwardRef(() => OnboardingModule)],
   controllers: [
     WhatsappController,
     PaymentWebhookController,

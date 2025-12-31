@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { SupabaseService } from '../services/supabase.service';
 import { PaymentIntegrationService } from '../services/payment-integration.service';
-import type { RouterAction, TenantContext } from '../whatsapp.types';
+import type { RouterAction } from '../whatsapp.types';
 
 export interface PaymentIntentPayload {
   amountUsd: number;
@@ -25,7 +25,6 @@ export class TreasurerAgentService {
   }
 
   async handlePaymentRequest(params: {
-    tenant: TenantContext;
     sender: string;
     payload: PaymentIntentPayload;
   }): Promise<RouterAction[]> {
