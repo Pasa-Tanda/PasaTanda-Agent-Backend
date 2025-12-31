@@ -29,7 +29,7 @@ Con el nuevo token, lista los números de tu cuenta:
 
 ```bash
 curl -X GET \
-  "https://graph.facebook.com/v24.0/2392249954565713/phone_numbers?access_token=TU_NUEVO_TOKEN" \
+  "https://graph.facebook.com/v24.0/1381053106841363/phone_numbers?access_token=EAAPAN9pkkbMBQc7YSjjKO4XN8h1Hr3FjR7aHPZCJknVqVTWWpdQgwWO0fv29q0VFDOxvZB8CfeqxoIR2TQMvd4mHXWxKOORBERRBIOr3Mgq9b99pztCO9ZCPtsrkVGRcRxZApZAJ0XBibbLdro509qNBKhRXt8yJJhmHSzN7qacYZAEXlALyVtQM4dOCSEfsnCXQZDZD" \
   | jq '.'
 ```
 
@@ -197,3 +197,16 @@ curl -X POST \
   }'
 ```
 
+## Crear invitacion
+
+```bash
+curl -X POST \
+  "https://graph.facebook.com/v24.0/970049279516787/groups" \
+  -H "Authorization: Bearer EAAPAN9pkkbMBQc7YSjjKO4XN8h1Hr3FjR7aHPZCJknVqVTWWpdQgwWO0fv29q0VFDOxvZB8CfeqxoIR2TQMvd4mHXWxKOORBERRBIOr3Mgq9b99pztCO9ZCPtsrkVGRcRxZApZAJ0XBibbLdro509qNBKhRXt8yJJhmHSzN7qacYZAEXlALyVtQM4dOCSEfsnCXQZDZD" \
+  -d '{                             
+      "messaging_product": "whatsapp",
+      "subject": "pruebajaja",
+      "description": "hendrickeresmamin",
+      "join_approval_mode": "auto_approve"
+  }'
+```

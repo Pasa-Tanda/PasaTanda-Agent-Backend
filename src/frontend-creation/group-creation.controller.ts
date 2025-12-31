@@ -7,11 +7,11 @@ import {
   Query,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { OnboardingService } from './onboarding.service';
+import { GroupCreationService } from './group-creation.service';
 
-@Controller('api/onboarding')
-export class OnboardingController {
-  constructor(private readonly onboarding: OnboardingService) {}
+@Controller('api/frontend')
+export class GroupCreationController {
+  constructor(private readonly groupCreation: GroupCreationService) {}
 
   @Get('verify')
   async verifyPhone(@Query('phone') phone?: string) {
@@ -22,17 +22,39 @@ export class OnboardingController {
       });
     }
 
-    const { code, expiresAt } = await this.onboarding.requestVerification(phone);
+    const { code, expiresAt } = await this.groupCreation.requestVerification(phone);
+    const latest = await this.groupCreation.getLatestRecord(phone);
 
     return {
       success: true,
       code,
       expiresAt,
+      whatsappUsername: latest?.whatsappUsername ?? null,
+      username: latest?.whatsappUsername ?? null,
       message: 'Envía este código al bot de WhatsApp',
     };
   }
 
-  @Post()
+  @Get('confirm-verification')
+  async confirmVerification(@Query('phone') phone?: string) {
+    if (!phone) {
+      throw new BadRequestException({
+        success: false,
+        message: 'Missing required field: phone',
+      });
+    }
+
+    const status = await this.groupCreation.getVerificationStatus(phone);
+
+    return {
+      success: true,
+      verified: status.verified,
+      timestamp: status.timestamp,
+      username: status.whatsappUsername ?? null,
+    };
+  }
+
+  @Post('create-group')
   createGroup(
     @Body()
     payload: {
@@ -43,7 +65,6 @@ export class OnboardingController {
       amount?: number;
       frequency?: string;
       enableYield?: boolean;
-      yieldShareBps?: number;
     },
   ) {
     const required = ['name', 'phone', 'whatsappUsername', 'currency', 'amount', 'frequency'] as const;
@@ -63,6 +84,7 @@ export class OnboardingController {
     }
 
     const groupId = randomUUID();
+    const shareYieldInfo = payload.enableYield ?? true;
 
     return {
       success: true,
@@ -70,11 +92,13 @@ export class OnboardingController {
       status: 'DRAFT',
       whatsappGroupJid: `group-${groupId}@g.us`,
       inviteLink: 'https://chat.whatsapp.com/placeholder',
+      enableYield: shareYieldInfo,
       message: 'Grupo creado. Comparte el link de invitación.',
     };
   }
 
   private isValidPhone(phone: string): boolean {
-    return /^\+?\d{8,15}$/.test(phone);
+    const digitsOnly = phone.replace(/\D/g, '');
+    return digitsOnly.length >= 8 && digitsOnly.length <= 15;
   }
 }

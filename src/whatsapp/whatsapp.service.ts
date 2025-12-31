@@ -258,11 +258,8 @@ export class WhatsappService {
     );
 
     if (verifiedNow) {
-      const phoneWithPlus = canonicalSender.startsWith('+')
-        ? canonicalSender
-        : `+${canonicalSender}`;
       await this.frontendWebhook.sendVerificationConfirmation({
-        phone: phoneWithPlus,
+        phone: canonicalSender,
         verified: true,
         timestamp: Date.now(),
         whatsappNumber: canonicalSender,

@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnboardingService } from '../../onboarding/onboarding.service';
+import { GroupCreationService } from '../../frontend-creation/group-creation.service';
 
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
 
-  constructor(private readonly onboarding: OnboardingService) {}
+  constructor(private readonly onboarding: GroupCreationService) {}
 
   async issueCode(phone: string): Promise<{ code: string; expiresAt: Date }> {
     const { code, expiresAt } = await this.onboarding.requestVerification(phone);

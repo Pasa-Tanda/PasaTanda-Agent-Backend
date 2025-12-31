@@ -17,7 +17,7 @@ import { SorobanClientService } from './services/soroban-client.service';
 import { GroupService } from './services/group.service';
 import { VerificationService } from './services/verification.service';
 import { FrontendWebhookService } from './services/frontend-webhook.service';
-import { OnboardingModule } from '../onboarding/onboarding.module';
+import { OnboardingModule } from '../frontend-creation/onboarding.module';
 
 @Module({
   imports: [HttpModule, ConfigModule, OnboardingModule],

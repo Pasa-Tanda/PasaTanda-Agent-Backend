@@ -23,14 +23,15 @@ type DbVerificationRow = {
 };
 
 @Injectable()
-export class OnboardingService {
-  private readonly logger = new Logger(OnboardingService.name);
+export class GroupCreationService {
+  private readonly logger = new Logger(GroupCreationService.name);
   private readonly ttlMs = 10 * 60 * 1000;
 
   constructor(private readonly supabase: SupabaseService) {}
 
   async requestVerification(phone: string): Promise<{ code: string; expiresAt: number }> {
     this.ensureSupabaseReady();
+    const normalizedPhone = this.normalizePhone(phone);
     const code = this.generateCode();
     const expiresAt = Date.now() + this.ttlMs;
     const expiresAtDate = new Date(expiresAt);
@@ -48,7 +49,7 @@ export class OnboardingService {
           whatsapp_username = null,
           whatsapp_number = null
       `,
-      [phone, code, expiresAtDate],
+      [normalizedPhone, code, expiresAtDate],
     );
 
     return { code, expiresAt };
@@ -62,9 +63,8 @@ export class OnboardingService {
     whatsappNumber?: string;
   }): Promise<VerificationRecord> {
     this.ensureSupabaseReady();
-    const verifiedAtDate = params.verified
-      ? new Date(params.timestamp ?? Date.now())
-      : null;
+    const normalizedPhone = this.normalizePhone(params.phone);
+    const verifiedAtDate = params.verified ? new Date(params.timestamp ?? Date.now()) : null;
 
     const rows = await this.supabase.query<DbVerificationRow>(
       `
@@ -81,7 +81,7 @@ export class OnboardingService {
         returning *
       `,
       [
-        params.phone,
+        normalizedPhone,
         params.verified,
         verifiedAtDate,
         params.whatsappUsername ?? null,
@@ -99,16 +99,18 @@ export class OnboardingService {
 
   async getLatestRecord(phone: string): Promise<VerificationRecord | undefined> {
     this.ensureSupabaseReady();
-    const row = await this.getRowByPhone(phone);
+    const normalizedPhone = this.normalizePhone(phone);
+    const row = await this.getRowByPhone(normalizedPhone);
     return row ? this.mapRowToRecord(row) : undefined;
   }
 
   async verifyCode(phone: string, code: string): Promise<boolean> {
     this.ensureSupabaseReady();
+    const normalizedPhone = this.normalizePhone(phone);
     const normalizedCode = code.trim();
     if (!normalizedCode) return false;
 
-    const row = await this.getRowByPhone(phone);
+    const row = await this.getRowByPhone(normalizedPhone);
     if (!row || !row.code) {
       return false;
     }
@@ -140,7 +142,8 @@ export class OnboardingService {
 
   async getVerificationStatus(phone: string) {
     this.ensureSupabaseReady();
-    const row = await this.getRowByPhone(phone);
+    const normalizedPhone = this.normalizePhone(phone);
+    const row = await this.getRowByPhone(normalizedPhone);
 
     if (!row) {
       return {
@@ -214,5 +217,13 @@ export class OnboardingService {
       code += alphabet[idx];
     }
     return code;
+  }
+
+  private normalizePhone(phone: string): string {
+    const digitsOnly = phone?.replace(/\D/g, '') ?? '';
+    if (!digitsOnly) {
+      throw new Error('Número de teléfono inválido para verificación');
+    }
+    return digitsOnly;
   }
 }
