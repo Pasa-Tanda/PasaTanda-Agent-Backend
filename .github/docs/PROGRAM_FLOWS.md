@@ -25,6 +25,7 @@ sequenceDiagram
 ```
 
 **Paso a paso**
+
 1. Meta envía el webhook con `metadata.phone_number_id` dedicado a la empresa receptora.
 2. `IdentityService` resuelve el tenant usando `companies.whatsapp_phone_id` y adjunta los números administrativos (`companies.whatsapp_admin_phone_ids`).
 3. `WhatsappService` marca el mensaje como leído usando el mismo número del tenant (no importa lo que haya en `.env`).
@@ -34,10 +35,11 @@ sequenceDiagram
 7. Cada acción generada se despacha nuevamente usando el `phone_number_id` del tenant.
 
 **Casos de prueba sugeridos**
-- *Dueño registrado* (`59177242197`). Debe recibir privilegios de admin e instrucciones para vincular Google si no existe integración.
-- *Cliente nuevo* (`59163020142`). Se registra como `ROLE_CLIENT` en `company_users` y solo puede acceder a flujos de venta/citas.
-- *Tenant desconocido*. Enviar un webhook con `phone_number_id` inexistente debe registrarse como advertencia y descartarse sin error 5XX.
-- *Cliente sin intención*. Verifica que el bot responda de forma natural (usando `companies.config`) en vez de un mensaje genérico.
+
+- _Dueño registrado_ (`59177242197`). Debe recibir privilegios de admin e instrucciones para vincular Google si no existe integración.
+- _Cliente nuevo_ (`59163020142`). Se registra como `ROLE_CLIENT` en `company_users` y solo puede acceder a flujos de venta/citas.
+- _Tenant desconocido_. Enviar un webhook con `phone_number_id` inexistente debe registrarse como advertencia y descartarse sin error 5XX.
+- _Cliente sin intención_. Verifica que el bot responda de forma natural (usando `companies.config`) en vez de un mensaje genérico.
 
 ## 2. Flujo de Onboarding Google Calendar (solo Admin)
 
@@ -59,6 +61,7 @@ sequenceDiagram
 ```
 
 **Validaciones**
+
 - Si `company_integrations` no tiene `GOOGLE_CALENDAR`, la respuesta debe ser:
   > "Parece que no tienes una cuenta de Google asociada..."
 - Tras el callback exitoso, el administrador recibe un mensaje enviado desde el número del tenant involucrado.
@@ -81,11 +84,13 @@ sequenceDiagram
 ```
 
 **Eventos soportados**
+
 - `QR_GENERATED`: envía texto e imagen Base64 del QR.
 - `VERIFICATION_RESULT`: confirma o reinicia el flujo según `success`.
 - `LOGIN_2FA_REQUIRED`: notifica al cliente y a todos los admins (`company_users` + números en `companies.whatsapp_admin_phone_ids`).
 
 **Pruebas recomendadas**
+
 1. Simular `QR_GENERATED` con `company_id` distinto y verificar que cada cliente recibe el mensaje desde su número dedicado.
 2. Simular `LOGIN_2FA_REQUIRED` y confirmar que los administradores configurados reciben la alerta aun si no están en `company_users` (usa el array `whatsapp_admin_phone_ids` con MSISDNs).
 3. Confirmar que los clientes no pueden completar el flujo `TOKEN/2FA`; el router debe bloquearlo y recordarles las capacidades disponibles.
@@ -97,6 +102,7 @@ sequenceDiagram
 3. Si la respuesta requiere 2FA se setea `needs_2fa_attention` y se avisa a los administradores usando `sendTextMessage(..., { companyId })`.
 
 **Pruebas**
+
 - Mockear un warmup que solicite 2FA y validar que el mensaje llega desde el número correspondiente.
 
 ---

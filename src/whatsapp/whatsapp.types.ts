@@ -1,10 +1,5 @@
 import type { WhatsAppIncomingMessage } from './interfaces/whatsapp.interface';
 
-export enum UserRole {
-  ADMIN = 'ROLE_ADMIN',
-  CLIENT = 'ROLE_CLIENT',
-}
-
 export enum Intent {
   BOOKING = 'INTENT_BOOKING',
   SHOPPING = 'INTENT_SHOPPING',
@@ -58,11 +53,12 @@ export interface ReferredProduct {
 
 export interface RouterMessageContext {
   senderId: string;
+  /** Nombre del contacto de WhatsApp si está disponible */
+  senderName?: string;
   whatsappMessageId: string;
   originalText: string;
   message: WhatsAppIncomingMessage;
   phoneNumberId?: string;
-  role: UserRole;
   groupId?: string;
   adkSession?: AdkSessionSnapshot;
   /** Producto referenciado si el mensaje viene de un producto del catálogo */
@@ -89,7 +85,6 @@ export interface AgentResponse {
 }
 
 export interface RouterResult extends AgentResponse {
-  role: UserRole;
   intent: Intent | 'FALLBACK';
   sanitized: SanitizedTextResult;
 }

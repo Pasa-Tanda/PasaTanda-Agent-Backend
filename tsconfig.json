@@ -22,8 +22,5 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "exclude": [
-    "node_modules/@google/adk/examples/**",
-    "adk examples/**"
-  ]
+  "exclude": ["node_modules/@google/adk/examples/**", "adk examples/**"]
 }

@@ -15,6 +15,7 @@ interface PayVerificationResponse {
   success: boolean;
   txHash?: string;
   statusCode?: number;
+  reason?: string;
   raw?: any;
 }
 
@@ -28,7 +29,10 @@ export class PaymentIntegrationService {
     private readonly http: HttpService,
     config: ConfigService,
   ) {
-    this.baseUrl = config.get<string>('PAYMENT_BACKEND_URL', 'http://localhost:3000');
+    this.baseUrl = config.get<string>(
+      'PAYMENT_BACKEND_URL',
+      'http://localhost:3000',
+    );
     this.apiKey = config.get<string>('PAYMENT_API_KEY', '');
   }
 
@@ -61,7 +65,8 @@ export class PaymentIntegrationService {
       const data = response.data as any;
       const jobId = data?.jobId ?? data?.job_id ?? data?.jobID;
       const accepts = data?.accepts ?? data?.payments ?? [];
-      const qrBase64 = data?.qr_image_base64 ?? data?.qrBase64 ?? data?.qr_payload_url;
+      const qrBase64 =
+        data?.qr_image_base64 ?? data?.qrBase64 ?? data?.qr_payload_url;
       const challenge = data?.xdr ?? data?.challenge ?? data?.xdr_challenge;
 
       return {
@@ -72,7 +77,9 @@ export class PaymentIntegrationService {
         raw: data,
       };
     } catch (error) {
-      this.logger.error(`No se pudo negociar pago para ${params.orderId}: ${(error as Error).message}`);
+      this.logger.error(
+        `No se pudo negociar pago para ${params.orderId}: ${(error as Error).message}`,
+      );
       throw error;
     }
   }
@@ -109,12 +116,16 @@ export class PaymentIntegrationService {
       );
 
       const data = response.data as any;
-      const success = response.status === 200 && Boolean(data?.success ?? data?.verified ?? true);
+      const success =
+        response.status === 200 &&
+        Boolean(data?.success ?? data?.verified ?? true);
       const txHash = data?.tx_hash ?? data?.transaction;
 
       return { success, txHash, statusCode: response.status, raw: data };
     } catch (error) {
-      this.logger.error(`Error verificando pago de ${params.orderId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Error verificando pago de ${params.orderId}: ${(error as Error).message}`,
+      );
       return { success: false, raw: null };
     }
   }
@@ -142,13 +153,17 @@ export class PaymentIntegrationService {
       const txHash = data?.tx_hash ?? data?.transaction;
       return { success, txHash, raw: data };
     } catch (error) {
-      this.logger.error(`Error reenviando pago crypto ${params.orderId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Error reenviando pago crypto ${params.orderId}: ${(error as Error).message}`,
+      );
       return { success: false, raw: null };
     }
   }
 
   private buildHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
     if (this.apiKey) {
       headers['x-internal-api-key'] = this.apiKey;
     }

@@ -1,4 +1,13 @@
-import { Controller, Get, Headers, HttpException, HttpStatus, Logger, Query, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Headers,
+  HttpException,
+  HttpStatus,
+  Logger,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
@@ -62,13 +71,19 @@ export class PaymentProxyController {
     if (xPaymentHeader) {
       const decoded = this.decodeXPayment(xPaymentHeader);
       if (decoded) {
-        extractedOrderId = typeof decoded.orderId === 'string' ? decoded.orderId : undefined;
-        extractedDetails = typeof decoded.details === 'string' ? decoded.details : undefined;
+        extractedOrderId =
+          typeof decoded.orderId === 'string' ? decoded.orderId : undefined;
+        extractedDetails =
+          typeof decoded.details === 'string' ? decoded.details : undefined;
         this.logger.log(
           `📄 X-PAYMENT decodificado: ${JSON.stringify(decoded, null, 2)}`,
         );
 
-        if (decoded.x402Version && decoded.payload && (decoded.orderId || decoded.details)) {
+        if (
+          decoded.x402Version &&
+          decoded.payload &&
+          (decoded.orderId || decoded.details)
+        ) {
           const sanitizedPayload = { ...decoded };
           delete sanitizedPayload.orderId;
           delete sanitizedPayload.details;
@@ -76,7 +91,9 @@ export class PaymentProxyController {
             JSON.stringify(sanitizedPayload),
             'utf8',
           ).toString('base64');
-          this.logger.log('🔧 Ajustando X-PAYMENT para compatibilidad X402 (se remueven orderId/details).');
+          this.logger.log(
+            '🔧 Ajustando X-PAYMENT para compatibilidad X402 (se remueven orderId/details).',
+          );
         }
       }
 
@@ -91,7 +108,8 @@ export class PaymentProxyController {
     try {
       const orderIdFromQuery = this.extractQueryParam(query, 'orderId');
       const detailsFromQuery =
-        this.extractQueryParam(query, 'details') ?? this.extractQueryParam(query, 'description');
+        this.extractQueryParam(query, 'details') ??
+        this.extractQueryParam(query, 'description');
 
       const response = await firstValueFrom(
         this.httpService.get(targetUrl, {
@@ -101,7 +119,10 @@ export class PaymentProxyController {
         }),
       );
 
-      if (response.status === HttpStatus.OK && (headerToForward || orderIdFromQuery)) {
+      if (
+        response.status === HttpStatus.OK &&
+        (headerToForward || orderIdFromQuery)
+      ) {
         await this.handleSuccessfulPayment(
           extractedOrderId ?? orderIdFromQuery,
           extractedDetails ?? detailsFromQuery,
@@ -109,27 +130,40 @@ export class PaymentProxyController {
       }
 
       const paymentResponseHeader =
-        response.headers?.['x-payment-response'] ?? response.headers?.['X-PAYMENT-RESPONSE'];
-      
+        response.headers?.['x-payment-response'] ??
+        response.headers?.['X-PAYMENT-RESPONSE'];
+
       // Log detallado de la respuesta
-      this.logger.log(`📤 Respuesta del backend de pagos - Status: ${response.status}`);
-      this.logger.log(`📦 Header X-PAYMENT-RESPONSE presente: ${!!paymentResponseHeader}`);
-      
+      this.logger.log(
+        `📤 Respuesta del backend de pagos - Status: ${response.status}`,
+      );
+      this.logger.log(
+        `📦 Header X-PAYMENT-RESPONSE presente: ${!!paymentResponseHeader}`,
+      );
+
       if (paymentResponseHeader) {
         const value = Array.isArray(paymentResponseHeader)
           ? paymentResponseHeader.join(',')
           : paymentResponseHeader;
         res.setHeader('X-PAYMENT-RESPONSE', value);
-        
+
         try {
-          const decoded = JSON.parse(Buffer.from(value, 'base64').toString('utf8'));
-          this.logger.log(`📄 X-PAYMENT-RESPONSE decodificado: ${JSON.stringify(decoded, null, 2)}`);
+          const decoded = JSON.parse(
+            Buffer.from(value, 'base64').toString('utf8'),
+          );
+          this.logger.log(
+            `📄 X-PAYMENT-RESPONSE decodificado: ${JSON.stringify(decoded, null, 2)}`,
+          );
         } catch (err) {
-          this.logger.warn(`⚠️  No se pudo decodificar X-PAYMENT-RESPONSE: ${err.message}`);
+          this.logger.warn(
+            `⚠️  No se pudo decodificar X-PAYMENT-RESPONSE: ${err.message}`,
+          );
         }
       }
-      
-      this.logger.log(`📊 Body response: ${JSON.stringify(response.data).substring(0, 500)}`);
+
+      this.logger.log(
+        `📊 Body response: ${JSON.stringify(response.data).substring(0, 500)}`,
+      );
       this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       if (response.status === HttpStatus.OK) {
@@ -142,7 +176,9 @@ export class PaymentProxyController {
         throw error;
       }
 
-      const err = error as Error & { response?: { data?: unknown; status?: number } };
+      const err = error as Error & {
+        response?: { data?: unknown; status?: number };
+      };
       const status = err.response?.status ?? HttpStatus.BAD_GATEWAY;
       const body = err.response?.data ?? err.message;
       this.logger.error('Error reenviando petición a backend de pagos', err);
@@ -168,7 +204,10 @@ export class PaymentProxyController {
     return queryString ? `${base}?${queryString}` : base;
   }
 
-  private async handleSuccessfulPayment(orderId?: string, details?: string): Promise<void> {
+  private async handleSuccessfulPayment(
+    orderId?: string,
+    details?: string,
+  ): Promise<void> {
     if (!orderId) {
       this.logger.warn(
         'Confirmación de pago recibida sin orderId. No se actualizará ninguna orden.',
@@ -176,7 +215,8 @@ export class PaymentProxyController {
       return;
     }
 
-    const actions = await this.treasurerAgentService.handleWebhookSettlement(orderId);
+    const actions =
+      await this.treasurerAgentService.handleWebhookSettlement(orderId);
 
     if (!actions.length) {
       return;
@@ -190,7 +230,10 @@ export class PaymentProxyController {
       const raw = Buffer.from(header, 'base64').toString('utf8');
       return JSON.parse(raw) as XPaymentPayload;
     } catch (error) {
-      this.logger.error('No se pudo decodificar el header X-PAYMENT', error as Error);
+      this.logger.error(
+        'No se pudo decodificar el header X-PAYMENT',
+        error as Error,
+      );
       return null;
     }
   }

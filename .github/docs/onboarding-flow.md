@@ -1,12 +1,12 @@
 sequenceDiagram
-    participant U as Usuario (WA/FE)
-    participant FE as Frontend (Next.js)
-    participant A as AgentBE (WhatsApp API)
-    participant SB as Supabase
-    participant P as PayBE (x402/Fiat)
-    participant S as Soroban
-    participant WA as WhatsApp Cloud
-    autonumber
+participant U as Usuario (WA/FE)
+participant FE as Frontend (Next.js)
+participant A as AgentBE (WhatsApp API)
+participant SB as Supabase
+participant P as PayBE (x402/Fiat)
+participant S as Soroban
+participant WA as WhatsApp Cloud
+autonumber
 
     U->>FE: Form onboarding (tel, grupo, Bs, USDC, FX)
     FE->>A: GET /api/verify

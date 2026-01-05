@@ -54,11 +54,13 @@ Base URL: `${NEXT_PUBLIC_AGENT_BE_URL}`
 Solicita código de verificación para validar número de WhatsApp.
 
 **Request:**
+
 ```http
 GET /api/onboarding/verify?phone=%2B59177777777
 ```
 
 **Response (200):**
+
 ```json
 {
   "success": true,
@@ -69,6 +71,7 @@ GET /api/onboarding/verify?phone=%2B59177777777
 ```
 
 **Response (400):**
+
 ```json
 {
   "success": false,
@@ -77,10 +80,13 @@ GET /api/onboarding/verify?phone=%2B59177777777
 ```
 
 **Ejemplo Frontend:**
+
 ```typescript
 const agentUrl = process.env.NEXT_PUBLIC_AGENT_BE_URL;
 
-const response = await fetch(`${agentUrl}/api/onboarding/verify?phone=${encodeURIComponent(phone)}`);
+const response = await fetch(
+  `${agentUrl}/api/onboarding/verify?phone=${encodeURIComponent(phone)}`,
+);
 const data = await response.json();
 
 if (data.success) {
@@ -96,6 +102,7 @@ if (data.success) {
 Crea una nueva tanda (estado DRAFT). No despliega contratos hasta que el admin active la tanda.
 
 **Request:**
+
 ```http
 POST /api/onboarding
 Content-Type: application/json
@@ -125,6 +132,7 @@ Content-Type: application/json
 | yieldShareBps | number | ✗ | Porcentaje para usuarios (10000 = 100%) |
 
 **Response (201):**
+
 ```json
 {
   "success": true,
@@ -137,6 +145,7 @@ Content-Type: application/json
 ```
 
 **Ejemplo Frontend:**
+
 ```typescript
 const createTanda = async (formData: OnboardingFormData) => {
   const response = await fetch(`${agentUrl}/api/onboarding`, {
@@ -153,9 +162,9 @@ const createTanda = async (formData: OnboardingFormData) => {
       yieldShareBps: 8000, // 80% para usuarios
     }),
   });
-  
+
   const data = await response.json();
-  
+
   if (data.success) {
     // Redirigir a página de éxito
     router.push(`/onboarding/success?group=${data.groupId}`);
@@ -172,11 +181,13 @@ const createTanda = async (formData: OnboardingFormData) => {
 Obtiene detalles de una orden de pago (QR, XDR challenge, estado).
 
 **Request:**
+
 ```http
 GET /api/orders/550e8400-e29b-41d4-a716-446655440000
 ```
 
 **Response (200):**
+
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -202,6 +213,7 @@ GET /api/orders/550e8400-e29b-41d4-a716-446655440000
 ```
 
 **Estados posibles:**
+
 - `PENDING` - Esperando pago
 - `CLAIMED_BY_USER` - Usuario reportó pago, pendiente verificación
 - `PROCESSING_CRYPTO` - Procesando transacción crypto
@@ -210,6 +222,7 @@ GET /api/orders/550e8400-e29b-41d4-a716-446655440000
 - `EXPIRED` - Orden expirada
 
 **Ejemplo Frontend:**
+
 ```typescript
 useEffect(() => {
   const fetchOrder = async () => {
@@ -230,6 +243,7 @@ Confirma un pago (fiat o crypto). El tipo determina el flujo de verificación.
 ##### Pago Fiat (QR Bancario)
 
 **Request:**
+
 ```http
 POST /api/orders/550e8400-e29b-41d4-a716-446655440000/claim
 Content-Type: application/json
@@ -246,6 +260,7 @@ Content-Type: application/json
 ```
 
 **Response (200):**
+
 ```json
 {
   "success": true,
@@ -257,6 +272,7 @@ Content-Type: application/json
 ##### Pago Crypto (Stellar Wallet)
 
 **Request:**
+
 ```http
 POST /api/orders/550e8400-e29b-41d4-a716-446655440000/claim
 Content-Type: application/json
@@ -268,6 +284,7 @@ Content-Type: application/json
 ```
 
 **Estructura del xPayment (base64 decodificado):**
+
 ```json
 {
   "version": "x402-stellar-v1",
@@ -280,6 +297,7 @@ Content-Type: application/json
 ```
 
 **Response (200):**
+
 ```json
 {
   "success": true,
@@ -290,6 +308,7 @@ Content-Type: application/json
 ```
 
 **Ejemplo Frontend:**
+
 ```typescript
 // Pago Fiat
 const handleFiatClaim = async () => {
@@ -306,7 +325,7 @@ const handleFiatClaim = async () => {
       },
     }),
   });
-  
+
   const data = await response.json();
   if (data.success) {
     setSuccess('Verificando pago...');
@@ -318,7 +337,7 @@ const handleCryptoClaim = async () => {
   const xPayment = await buildXPayment(order.xdrChallenge, {
     address: walletInfo.address,
   });
-  
+
   const response = await fetch(`${agentUrl}/api/orders/${orderId}/claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -327,7 +346,7 @@ const handleCryptoClaim = async () => {
       xPayment,
     }),
   });
-  
+
   const data = await response.json();
   if (data.success) {
     setSuccess(`Pago exitoso: ${data.txHash}`);
@@ -346,6 +365,7 @@ El frontend expone webhooks que AgentBE llama para notificar eventos.
 Recibe confirmación de verificación de WhatsApp desde AgentBE.
 
 **Flujo:**
+
 1. Usuario solicita código en frontend → GET /api/onboarding/verify
 2. Frontend muestra código al usuario
 3. Usuario envía código al bot de WhatsApp
@@ -353,6 +373,7 @@ Recibe confirmación de verificación de WhatsApp desde AgentBE.
 5. AgentBE llama este webhook con los datos
 
 **Request (desde AgentBE):**
+
 ```http
 POST /api/webhook/confirm_verification
 Content-Type: application/json
@@ -376,6 +397,7 @@ Content-Type: application/json
 | whatsappNumber | string | ✗ | Número de WhatsApp (puede diferir) |
 
 **Response (200):**
+
 ```json
 {
   "success": true,
@@ -384,6 +406,7 @@ Content-Type: application/json
 ```
 
 **Response (400):**
+
 ```json
 {
   "success": false,
@@ -398,11 +421,13 @@ Content-Type: application/json
 Polling endpoint para verificar estado de verificación desde el frontend.
 
 **Request:**
+
 ```http
 GET /api/webhook/confirm_verification?phone=%2B59177777777
 ```
 
 **Response (verificado):**
+
 ```json
 {
   "verified": true,
@@ -413,6 +438,7 @@ GET /api/webhook/confirm_verification?phone=%2B59177777777
 ```
 
 **Response (no verificado):**
+
 ```json
 {
   "verified": false,
@@ -421,22 +447,23 @@ GET /api/webhook/confirm_verification?phone=%2B59177777777
 ```
 
 **Ejemplo Frontend (Polling):**
+
 ```typescript
 useEffect(() => {
   if (stage !== 'verification') return;
-  
+
   const pollVerification = async () => {
     const response = await fetch(
-      `/api/webhook/confirm_verification?phone=${encodeURIComponent(phone)}`
+      `/api/webhook/confirm_verification?phone=${encodeURIComponent(phone)}`,
     );
     const data = await response.json();
-    
+
     if (data.verified) {
       setWhatsappUsername(data.whatsappUsername);
       setStage('confirmation');
     }
   };
-  
+
   const interval = setInterval(pollVerification, 3000);
   return () => clearInterval(interval);
 }, [phone, stage]);
@@ -537,29 +564,29 @@ const xPayment = await buildXPayment(order.xdrChallenge, {
 
 ## Rutas de la Aplicación
 
-| Ruta | Descripción |
-|------|-------------|
-| `/` | Landing page |
-| `/onboarding` | Redirect a /onboarding/verify |
+| Ruta                 | Descripción                           |
+| -------------------- | ------------------------------------- |
+| `/`                  | Landing page                          |
+| `/onboarding`        | Redirect a /onboarding/verify         |
 | `/onboarding/verify` | Flujo de creación de tanda (5 etapas) |
-| `/pagos` | Información de métodos de pago |
-| `/pagos/[id]` | Página de pago individual |
-| `/docs` | Índice de documentación |
-| `/docs/api` | Referencia de API |
-| `/docs/contracts` | Documentación de smart contracts |
-| `/docs/integrations` | Guías de integración |
-| `/faq` | Preguntas frecuentes |
-| `/ToS` | Términos de servicio |
-| `/PP` | Política de privacidad |
+| `/pagos`             | Información de métodos de pago        |
+| `/pagos/[id]`        | Página de pago individual             |
+| `/docs`              | Índice de documentación               |
+| `/docs/api`          | Referencia de API                     |
+| `/docs/contracts`    | Documentación de smart contracts      |
+| `/docs/integrations` | Guías de integración                  |
+| `/faq`               | Preguntas frecuentes                  |
+| `/ToS`               | Términos de servicio                  |
+| `/PP`                | Política de privacidad                |
 
 ---
 
 ## Códigos de Error Comunes
 
-| Código | Mensaje | Causa |
-|--------|---------|-------|
-| 400 | "Missing required fields" | Faltan campos obligatorios |
-| 401 | "Invalid signature" | Firma HMAC inválida |
-| 404 | "Order not found" | Orden no existe |
-| 402 | "Payment Required" | Se requiere pago (x402) |
-| 500 | "Internal server error" | Error del servidor |
+| Código | Mensaje                   | Causa                      |
+| ------ | ------------------------- | -------------------------- |
+| 400    | "Missing required fields" | Faltan campos obligatorios |
+| 401    | "Invalid signature"       | Firma HMAC inválida        |
+| 404    | "Order not found"         | Orden no existe            |
+| 402    | "Payment Required"        | Se requiere pago (x402)    |
+| 500    | "Internal server error"   | Error del servidor         |

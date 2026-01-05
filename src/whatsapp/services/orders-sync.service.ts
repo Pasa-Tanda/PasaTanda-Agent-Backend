@@ -33,7 +33,7 @@ export class OrdersSyncService {
       this.logger.warn('Supabase no habilitado, no se puede guardar orden');
       return order.supabaseOrderId;
     }
-    
+
     if (!order.amount) {
       this.logger.warn('Orden sin monto, no se puede guardar');
       return order.supabaseOrderId;
@@ -104,7 +104,11 @@ export class OrdersSyncService {
              metadata = metadata || $3::jsonb,
              updated_at = now()
          WHERE id = $1`,
-        [order.supabaseOrderId, this.mapState(order.state), JSON.stringify(metadata)],
+        [
+          order.supabaseOrderId,
+          this.mapState(order.state),
+          JSON.stringify(metadata),
+        ],
       );
     } else {
       await this.supabase.query(

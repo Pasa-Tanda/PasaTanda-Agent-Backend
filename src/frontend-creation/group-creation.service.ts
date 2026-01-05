@@ -59,7 +59,13 @@ export class GroupCreationService {
           preferred_currency = EXCLUDED.preferred_currency
         RETURNING id
       `,
-      [normalizedPhone, params.username, stellarPublicKey, stellarSecretKey, params.preferredCurrency],
+      [
+        normalizedPhone,
+        params.username,
+        stellarPublicKey,
+        stellarSecretKey,
+        params.preferredCurrency,
+      ],
     );
 
     const userId = rows[0]?.id;
@@ -125,10 +131,17 @@ export class GroupCreationService {
       throw new Error('No se pudo crear el grupo');
     }
 
-    return { groupId, groupDbId, whatsappGroupJid, enableYield: shareYieldInfo };
+    return {
+      groupId,
+      groupDbId,
+      whatsappGroupJid,
+      enableYield: shareYieldInfo,
+    };
   }
 
-  async requestVerification(phone: string): Promise<{ code: string; expiresAt: number }> {
+  async requestVerification(
+    phone: string,
+  ): Promise<{ code: string; expiresAt: number }> {
     this.ensureSupabaseReady();
     const normalizedPhone = this.normalizePhone(phone);
     const code = this.generateCode();
@@ -163,7 +176,9 @@ export class GroupCreationService {
   }): Promise<VerificationRecord> {
     this.ensureSupabaseReady();
     const normalizedPhone = this.normalizePhone(params.phone);
-    const verifiedAtDate = params.verified ? new Date(params.timestamp ?? Date.now()) : null;
+    const verifiedAtDate = params.verified
+      ? new Date(params.timestamp ?? Date.now())
+      : null;
 
     const rows = await this.supabase.query<DbVerificationRow>(
       `
@@ -190,13 +205,17 @@ export class GroupCreationService {
 
     const row = rows[0];
     if (!row) {
-      throw new Error(`No se pudo confirmar la verificación para ${params.phone}`);
+      throw new Error(
+        `No se pudo confirmar la verificación para ${params.phone}`,
+      );
     }
 
     return this.mapRowToRecord(row);
   }
 
-  async getLatestRecord(phone: string): Promise<VerificationRecord | undefined> {
+  async getLatestRecord(
+    phone: string,
+  ): Promise<VerificationRecord | undefined> {
     this.ensureSupabaseReady();
     const normalizedPhone = this.normalizePhone(phone);
     const row = await this.getRowByPhone(normalizedPhone);
@@ -261,7 +280,9 @@ export class GroupCreationService {
     };
   }
 
-  private async getRowByPhone(phone: string): Promise<DbVerificationRow | null> {
+  private async getRowByPhone(
+    phone: string,
+  ): Promise<DbVerificationRow | null> {
     const rows = await this.supabase.query<DbVerificationRow>(
       `
         select id, phone, code, expires_at, verified, verified_at, whatsapp_username, whatsapp_number
@@ -296,7 +317,9 @@ export class GroupCreationService {
   }
 
   private async deleteRow(id: number): Promise<void> {
-    await this.supabase.query('delete from verification_codes where id = $1', [id]);
+    await this.supabase.query('delete from verification_codes where id = $1', [
+      id,
+    ]);
   }
 
   private ensureSupabaseReady(): void {
@@ -304,7 +327,9 @@ export class GroupCreationService {
       this.logger.error(
         'SupabaseService no está configurado. Asegúrate de definir SUPABASE_DB_URL o POSTGRES_URL* para habilitar verificaciones OTP.',
       );
-      throw new Error('Servicio de verificación OTP deshabilitado por falta de conexión a Supabase');
+      throw new Error(
+        'Servicio de verificación OTP deshabilitado por falta de conexión a Supabase',
+      );
     }
   }
 

@@ -3,7 +3,6 @@ import type {
   AdkSessionSnapshot,
   Intent,
   SanitizedTextResult,
-  UserRole,
 } from '../whatsapp.types';
 import { SupabaseService } from './supabase.service';
 
@@ -19,41 +18,6 @@ export class AdkSessionService {
   private readonly fallbackSessions = new Map<string, AdkSessionSnapshot>();
 
   constructor(private readonly supabase: SupabaseService) {}
-
-  async loadSession(
-    companyId: string,
-    companyName: string,
-    senderId: string,
-    role: UserRole,
-  ): Promise<AdkSessionSnapshot> {
-    const sessionId = this.buildSessionId(companyId, senderId);
-    const existing = await this.fetchSession(sessionId);
-
-    const baseContext = this.buildBaseContext(companyName, role);
-    let mergedContext = { ...baseContext };
-
-    if (existing) {
-      mergedContext = {
-        ...existing.context,
-        ...baseContext,
-        company_name: baseContext.company_name,
-        company_tone: baseContext.company_tone,
-        inventory_context: baseContext.inventory_context,
-        today_date: baseContext.today_date,
-        user_role: baseContext.user_role,
-      };
-    }
-
-    const snapshot: AdkSessionSnapshot = {
-      sessionId,
-      companyId,
-      senderId,
-      context: mergedContext,
-    };
-
-    await this.persistSession(snapshot);
-    return snapshot;
-  }
 
   async recordInteraction(params: {
     session: AdkSessionSnapshot;
@@ -129,19 +93,6 @@ export class AdkSessionService {
     }
 
     return {};
-  }
-
-  private buildBaseContext(companyName: string, role: UserRole) {
-    const tone = 'Neutral';
-    const inventoryContext = 'Inventario General';
-
-    return {
-      company_name: companyName,
-      company_tone: tone,
-      inventory_context: inventoryContext,
-      today_date: new Date().toISOString().slice(0, 10),
-      user_role: role,
-    };
   }
 
   private buildSessionId(companyId: string, senderId: string): string {

@@ -10,12 +10,12 @@ import {
   SendMessageDto,
   WhatsAppContact,
 } from './interfaces/whatsapp.interface';
-import { PasatandaOrchestratorService } from './services/pasatanda-orchestrator.service';
+import {
+  AdkOrchestratorService,
+  OrchestrationAction,
+} from './agents/adk-orchestrator.service';
 import { PinataService } from './services/pinata.service';
-import { VerificationService } from './services/verification.service';
-import { FrontendWebhookService } from './services/frontend-webhook.service';
-import type { RouterAction } from './whatsapp.types';
-import { UserRole } from './whatsapp.types';
+import { WhatsAppMessagingService } from './services/whatsapp-messaging.service';
 
 interface MessageContextOptions {
   phoneNumberId?: string;
@@ -34,10 +34,9 @@ export class WhatsappService {
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
-    private readonly orchestrator: PasatandaOrchestratorService,
+    private readonly adkOrchestrator: AdkOrchestratorService,
     private readonly pinataService: PinataService,
-    private readonly verificationService: VerificationService,
-    private readonly frontendWebhook: FrontendWebhookService,
+    private readonly messagingService: WhatsAppMessagingService,
   ) {
     this.apiVersion = this.configService.get<string>(
       'WHATSAPP_API_VERSION',
@@ -47,6 +46,7 @@ export class WhatsappService {
       this.configService.get<string>('WHATSAPP_PHONE_NUMBER_ID', '') ||
       this.configService.get<string>('PHONE_NUMBER_ID', '');
     this.apiToken = this.configService.get<string>('META_API_TOKEN', '');
+    this.logger.log('🤖 Orquestador ADK activado');
   }
 
   /**
@@ -85,7 +85,8 @@ export class WhatsappService {
       for (const entry of body.entry) {
         for (const change of entry.changes) {
           const value = change.value;
-          const phoneNumberId = value.metadata?.phone_number_id ?? this.defaultPhoneNumberId;
+          const phoneNumberId =
+            value.metadata?.phone_number_id ?? this.defaultPhoneNumberId;
 
           // Procesar mensajes
           if (value.messages && value.messages.length > 0) {
@@ -264,56 +265,223 @@ export class WhatsappService {
     const canonicalSender = contactWaId ?? message.from;
     this.logger.log(`📨 Procesando mensaje de ${canonicalSender}`);
 
-    const verifiedNow = await this.verificationService.tryConfirmFromMessage(
+    // La verificación de códigos OTP ahora se maneja vía el orquestador ADK usando una tool dedicada.
+    await this.handleWithAdkOrchestrator(
       canonicalSender,
-      message.text.body,
-      contactName,
-    );
-
-    if (verifiedNow) {
-      await this.frontendWebhook.sendVerificationConfirmation({
-        phone: canonicalSender,
-        verified: true,
-        timestamp: Date.now(),
-        whatsappNumber: canonicalSender,
-      });
-      await this.sendTextMessage(
-        canonicalSender,
-        '✔️ Verificamos tu teléfono. Ahora completa el formulario en la web y presiona "Crear Tanda".',
-        { phoneNumberId },
-      );
-      return;
-    }
-
-    // Si el mensaje parece un código de verificación pero no coincidió, no lo envíes al orquestador.
-    if (/[A-Z0-9]{6}/i.test(message.text.body)) {
-      await this.sendTextMessage(
-        canonicalSender,
-        'El código ingresado no es válido o ya expiró. Vuelve a solicitarlo desde el formulario y envíalo tal cual aparece.',
-        { phoneNumberId },
-      );
-      return;
-    }
-
-    const role = UserRole.CLIENT;
-
-    const routerResult = await this.orchestrator.route({
-      senderId: canonicalSender,
-      whatsappMessageId: message.id,
-      originalText: message.text.body,
       message,
       phoneNumberId,
-      role,
-      groupId: message.group?.id ?? (message as any)?.group_id ?? (message.context as any)?.group_id,
-    });
+      contactName,
+    );
+  }
 
-    this.logger.debug(`Despachando ${routerResult.actions.length} acciones...`);
-    for (const action of routerResult.actions) {
-      const recipient = action.to ?? canonicalSender;
-      await this.dispatchAction(recipient, action, phoneNumberId);
+  /**
+   * Procesa mensaje usando el orquestador ADK (Google Agent Development Kit)
+   */
+  private async handleWithAdkOrchestrator(
+    canonicalSender: string,
+    message: WhatsAppIncomingMessage,
+    phoneNumberId: string,
+    contactName?: string,
+  ): Promise<void> {
+    this.logger.debug(
+      `🤖 Procesando con ADK orchestrator para ${canonicalSender}`,
+    );
+
+    try {
+      const result = await this.adkOrchestrator.route({
+        senderId: canonicalSender,
+        senderName: contactName,
+        whatsappMessageId: message.id,
+        originalText: message.text?.body ?? '',
+        message,
+        phoneNumberId,
+        groupId:
+          message.group?.id ??
+          (message as any)?.group_id ??
+          (message.context as any)?.group_id,
+      });
+
+      this.logger.debug(
+        `📤 Despachando ${result.actions.length} acciones ADK...`,
+      );
+
+      for (const action of result.actions) {
+        const recipient = action.to ?? canonicalSender;
+        await this.dispatchAdkAction(recipient, action, phoneNumberId);
+      }
+
+      this.logger.log(
+        `✅ [ADK] Mensaje procesado para ${canonicalSender} - Intent: ${result.intent}`,
+      );
+    } catch (error) {
+      this.logger.error(`❌ Error en ADK orchestrator:`, error);
+      // Fallback a mensaje de error amigable
+      await this.sendTextMessage(
+        canonicalSender,
+        'Lo siento, tuve un problema procesando tu mensaje. Por favor intenta de nuevo.',
+        { phoneNumberId },
+      );
     }
+  }
 
-    this.logger.log(`✅ Mensaje procesado completamente para ${canonicalSender}`);
+  /**
+   * Despacha acciones del orquestador ADK usando el servicio de mensajería tipado
+   */
+  private async dispatchAdkAction(
+    recipient: string,
+    action: OrchestrationAction,
+    phoneNumberId: string,
+  ): Promise<void> {
+    try {
+      switch (action.type) {
+        case 'text':
+          await this.messagingService.sendText(recipient, action.text, {
+            phoneNumberId,
+          });
+          break;
+
+        case 'image': {
+          if (action.imageUrl) {
+            await this.messagingService.sendImage(
+              recipient,
+              { link: action.imageUrl },
+              { phoneNumberId, caption: action.caption },
+            );
+          } else if (action.base64) {
+            // Subir a Pinata primero si está disponible
+            if (this.pinataService.isEnabled()) {
+              const publicUrl = await this.pinataService.uploadImageFromBase64(
+                action.base64,
+                `img-${Date.now()}.png`,
+              );
+              if (publicUrl) {
+                await this.messagingService.sendImage(
+                  recipient,
+                  { link: publicUrl },
+                  { phoneNumberId, caption: action.caption },
+                );
+                break;
+              }
+            }
+            // Fallback: upload directo a Meta
+            const buffer = Buffer.from(action.base64, 'base64');
+            const { id } = await this.messagingService.uploadMedia(
+              buffer,
+              action.mimeType ?? 'image/png',
+              `image-${Date.now()}.png`,
+              { phoneNumberId },
+            );
+            await this.messagingService.sendImage(
+              recipient,
+              { id },
+              { phoneNumberId, caption: action.caption },
+            );
+          }
+          break;
+        }
+
+        case 'template':
+          if (
+            action.templateName === 'payment_request' &&
+            action.templateParams
+          ) {
+            await this.messagingService.sendPaymentRequest(
+              recipient,
+              {
+                month: action.templateParams.month,
+                totalAmount: action.templateParams.totalAmount,
+                exchangeRate: action.templateParams.exchangeRate,
+                groupName: action.templateParams.groupName,
+                headerImageUrl: action.templateParams.headerImageUrl,
+                paymentUrl: action.templateParams.paymentUrl,
+              },
+              { phoneNumberId },
+            );
+          } else if (action.templateName && action.templateComponents) {
+            await this.messagingService.sendTemplate(
+              recipient,
+              action.templateName,
+              action.languageCode ?? 'es',
+              action.templateComponents,
+              { phoneNumberId },
+            );
+          }
+          break;
+
+        case 'interactive_buttons':
+          if (action.buttons) {
+            await this.messagingService.sendInteractiveButtons(
+              recipient,
+              action.text,
+              action.buttons,
+              {
+                phoneNumberId,
+                header: action.header,
+                footer: action.footer,
+              },
+            );
+          }
+          break;
+
+        case 'interactive_list':
+          if (action.sections) {
+            await this.messagingService.sendInteractiveList(
+              recipient,
+              action.text,
+              action.buttonText ?? 'Ver opciones',
+              action.sections,
+              {
+                phoneNumberId,
+                header: action.listHeader,
+                footer: action.footer,
+              },
+            );
+          }
+          break;
+
+        case 'location':
+          if (action.location) {
+            await this.messagingService.sendLocation(
+              recipient,
+              action.location,
+              { phoneNumberId },
+            );
+          }
+          break;
+
+        case 'document':
+          if (action.documentUrl) {
+            await this.messagingService.sendDocument(
+              recipient,
+              { link: action.documentUrl },
+              {
+                phoneNumberId,
+                caption: action.caption,
+                filename: action.filename,
+              },
+            );
+          }
+          break;
+
+        case 'reaction':
+          if (action.emoji && action.messageId) {
+            await this.messagingService.sendReaction(
+              recipient,
+              action.messageId,
+              action.emoji,
+              { phoneNumberId },
+            );
+          }
+          break;
+
+        default:
+          this.logger.warn(
+            `Tipo de acción ADK no soportado: ${(action as any).type}`,
+          );
+      }
+    } catch (error) {
+      this.logger.error(`Error despachando acción ADK ${action.type}:`, error);
+    }
   }
 
   /**
@@ -471,73 +639,6 @@ export class WhatsappService {
     const target = match ?? contacts[0];
     return target?.profile?.name;
   }
-
-  private resolveRole(sender: string): UserRole {
-    const admin = this.configService.get<string>('ADMIN_PHONE_NUMBER', '') || '';
-    const cleanSender = sender.replace(/[^0-9+]/g, '');
-    const cleanAdmin = admin.replace(/[^0-9+]/g, '');
-    if (cleanAdmin && cleanSender.endsWith(cleanAdmin)) {
-      return UserRole.ADMIN;
-    }
-    return UserRole.CLIENT;
-  }
-
-  private async dispatchAction(
-    recipient: string,
-    action: RouterAction,
-    phoneNumberId: string,
-  ): Promise<void> {
-    switch (action.type) {
-      case 'text':
-        await this.sendTextMessage(recipient, action.text, { phoneNumberId });
-        break;
-      case 'image': {
-        // Intentar subir a Pinata primero para obtener URL pública
-        if (this.pinataService.isEnabled()) {
-          const publicUrl = await this.pinataService.uploadImageFromBase64(
-            action.base64,
-            `qr-${Date.now()}.png`,
-          );
-          
-          if (publicUrl) {
-            // Enviar usando URL pública
-            await this.sendImageMessageFromUrl(
-              recipient,
-              publicUrl,
-              action.caption,
-              { phoneNumberId },
-            );
-            break;
-          }
-          
-          this.logger.warn('Pinata falló, usando fallback a upload directo');
-        }
-        
-        // Fallback: subir imagen a Meta directamente
-        const buffer = Buffer.from(action.base64, 'base64');
-        const { phoneNumberId: resolvedPhoneId } = await this.resolvePhoneNumberId({ phoneNumberId });
-        const mediaId = await this.uploadMedia(
-          buffer,
-          action.mimeType ?? 'image/png',
-          `image-${Date.now()}.png`,
-          resolvedPhoneId,
-        );
-        await this.sendImageMessage(
-          recipient,
-          mediaId,
-          action.caption,
-          { phoneNumberId: resolvedPhoneId },
-        );
-        break;
-      }
-      default: {
-        const unsupportedType = (action as { type: string }).type;
-        this.logger.warn(`Acción no soportada: ${unsupportedType}`);
-        break;
-      }
-    }
-  }
-
   /**
    * Envía un mensaje de texto
    */
@@ -769,12 +870,16 @@ export class WhatsappService {
 
     try {
       const response = await firstValueFrom(
-        this.httpService.post(this.getMessagesEndpoint(phoneNumberId), payload, {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiToken}`,
+        this.httpService.post(
+          this.getMessagesEndpoint(phoneNumberId),
+          payload,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.apiToken}`,
+            },
           },
-        }),
+        ),
       );
 
       this.logger.log(`Mensaje interactivo CTA URL enviado a ${to}`);
@@ -808,7 +913,7 @@ export class WhatsappService {
 
     // Intentar subir a Pinata para obtener URL pública (requerido por WhatsApp)
     let qrImageUrl: string | null = null;
-    
+
     if (this.pinataService.isEnabled()) {
       try {
         this.logger.debug('Subiendo QR a Pinata Cloud...');
@@ -821,7 +926,9 @@ export class WhatsappService {
         this.logger.error('Error subiendo QR a Pinata:', error);
       }
     } else {
-      this.logger.warn('Pinata no está configurado, no se puede enviar QR en header');
+      this.logger.warn(
+        'Pinata no está configurado, no se puede enviar QR en header',
+      );
     }
 
     // Si no hay URL del QR, enviar mensaje sin header de imagen

@@ -22,11 +22,16 @@ export class SorobanClientService {
     private readonly http: HttpService,
     config: ConfigService,
   ) {
-    this.baseUrl = config.get<string>('PAYMENT_BACKEND_URL', 'http://localhost:3000');
+    this.baseUrl = config.get<string>(
+      'PAYMENT_BACKEND_URL',
+      'http://localhost:3000',
+    );
     this.apiKey = config.get<string>('PAYMENT_API_KEY', '');
   }
 
-  async createGroup(params: CreateGroupParams): Promise<{ address?: string; raw?: any }> {
+  async createGroup(
+    params: CreateGroupParams,
+  ): Promise<{ address?: string; raw?: any }> {
     const url = `${this.baseUrl}/api/soroban/groups`;
     try {
       const response = await firstValueFrom(
@@ -46,15 +51,24 @@ export class SorobanClientService {
       const data = response.data as any;
       return { address: data?.groupAddress ?? data?.address, raw: data };
     } catch (error) {
-      this.logger.error(`No se pudo crear grupo Soroban: ${(error as Error).message}`);
+      this.logger.error(
+        `No se pudo crear grupo Soroban: ${(error as Error).message}`,
+      );
       throw error;
     }
   }
 
-  async payout(groupAddress: string, winner: string): Promise<{ txHash?: string }> {
+  async payout(
+    groupAddress: string,
+    winner: string,
+  ): Promise<{ txHash?: string }> {
     const url = `${this.baseUrl}/api/soroban/groups/${groupAddress}/payout`;
     const response = await firstValueFrom(
-      this.http.post(url, { winnerAddress: winner }, { headers: this.buildHeaders() }),
+      this.http.post(
+        url,
+        { winnerAddress: winner },
+        { headers: this.buildHeaders() },
+      ),
     );
     return { txHash: response.data?.txHash ?? response.data?.tx_hash };
   }
@@ -68,7 +82,9 @@ export class SorobanClientService {
   }
 
   private buildHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
     if (this.apiKey) {
       headers['x-internal-api-key'] = this.apiKey;
     }

@@ -34,6 +34,7 @@ curl -X GET \
 ```
 
 **Respuesta esperada:**
+
 ```json
 {
   "data": [
@@ -56,6 +57,7 @@ curl -X GET \
 ```
 
 **Respuesta esperada:**
+
 ```json
 {
   "code_verification_status": "VERIFIED",
@@ -79,6 +81,7 @@ curl -X POST \
 ```
 
 **Métodos disponibles:**
+
 - `SMS`: Código por mensaje de texto
 - `VOICE`: Código por llamada de voz
 
@@ -94,6 +97,7 @@ curl -X POST \
 ```
 
 **Respuesta exitosa:**
+
 ```json
 {
   "success": true
@@ -120,6 +124,7 @@ curl -X GET \
 ```
 
 **Respuesta:**
+
 ```json
 {
   "id": "213510245181779777",
@@ -130,21 +135,25 @@ curl -X GET \
 ```
 
 **Niveles de throughput:**
+
 - `STANDARD`: 80 mensajes/segundo (por defecto para cuentas nuevas)
 - `HIGH`: 1000 mensajes/segundo (requiere verificación de negocio)
 
 ## Notas Importantes
 
 ⚠️ **Diferencia entre tokens:**
+
 - **Token de Cloud API** (`WHATSAPP_API_TOKEN`): Solo para enviar/recibir mensajes
 - **Token de Business Management**: Para gestionar números, plantillas, configuración
 
 ⚠️ **Requisitos del número:**
+
 - Debe ser un número móvil (no VoIP)
 - No puede estar registrado en otra cuenta de WhatsApp Business
 - Debe poder recibir SMS o llamadas para verificación
 
 ⚠️ **API Limitations:**
+
 - La API de Business Management **NO permite agregar o eliminar números**, solo listarlos y verificarlos
 - Para agregar nuevos números, debes usar [Embedded Signup](https://developers.facebook.com/docs/whatsapp/embedded-signup) o Meta Business Suite UI
 
@@ -192,7 +201,7 @@ echo -e "\n=== Verificación completa ==="
 curl -X POST \
   "https://graph.facebook.com/v24.0/1381053106841363/subscribed_apps" \
   -H "Authorization: Bearer EAAPAN9pkkbMBQc7YSjjKO4XN8h1Hr3FjR7aHPZCJknVqVTWWpdQgwWO0fv29q0VFDOxvZB8CfeqxoIR2TQMvd4mHXWxKOORBERRBIOr3Mgq9b99pztCO9ZCPtsrkVGRcRxZApZAJ0XBibbLdro509qNBKhRXt8yJJhmHSzN7qacYZAEXlALyVtQM4dOCSEfsnCXQZDZD" \
-  -d '{                             
+  -d '{
     "data": ["group_status_update"]
   }'
 ```
@@ -203,7 +212,7 @@ curl -X POST \
 curl -X POST \
   "https://graph.facebook.com/v24.0/970049279516787/groups" \
   -H "Authorization: Bearer EAAPAN9pkkbMBQc7YSjjKO4XN8h1Hr3FjR7aHPZCJknVqVTWWpdQgwWO0fv29q0VFDOxvZB8CfeqxoIR2TQMvd4mHXWxKOORBERRBIOr3Mgq9b99pztCO9ZCPtsrkVGRcRxZApZAJ0XBibbLdro509qNBKhRXt8yJJhmHSzN7qacYZAEXlALyVtQM4dOCSEfsnCXQZDZD" \
-  -d '{                             
+  -d '{
       "messaging_product": "whatsapp",
       "subject": "pruebajaja",
       "description": "hendrickeresmamin",

@@ -3,6 +3,7 @@
 ## Cambios Realizados
 
 ### 1. Renombrado de Variables
+
 - ✅ `WHATSAPP_API_TOKEN` → `META_API_TOKEN` en todo el proyecto
 - ✅ Actualizado `.env`
 - ✅ Actualizado `whatsapp.service.ts`
@@ -11,28 +12,35 @@
 ### 2. Nuevos Archivos Creados
 
 #### DTOs
+
 - `src/whatsapp/dto/meta-catalog.dto.ts` - Tipos para integración con Meta Catalog API
 
 #### Servicios
+
 - `src/whatsapp/services/meta-catalog.service.ts` - Servicio principal de sincronización con Meta
 
 #### Controladores
+
 - `src/whatsapp/catalog-test.controller.ts` - Controlador de pruebas (eliminar en producción)
 
 #### Documentación
+
 - `.github/docs/META_CATALOG_INTEGRATION.md` - Guía completa de integración
 
 ### 3. Modificaciones en Archivos Existentes
 
 #### `src/whatsapp/whatsapp.module.ts`
+
 - ✅ Agregado `MetaCatalogService` a providers
 - ✅ Agregado `CatalogTestController` a controllers
 
 #### `src/whatsapp/whatsapp.types.ts`
+
 - ✅ Agregado enum `SalesToolType`
 - ✅ Agregado interface `SalesToolResult`
 
 #### `src/whatsapp/agents/sales-agent.service.ts`
+
 - ✅ Inyectado `MetaCatalogService`
 - ✅ Agregado método `executeCatalogTool()`
 - ✅ Agregado método `detectAndExecuteTool()`
@@ -46,11 +54,13 @@
 - ✅ Modificado `handleShoppingIntent()` para detectar uso de herramientas
 
 #### `README.md`
+
 - ✅ Actualizado con nueva configuración META_API_TOKEN
 
 ## Configuración Requerida
 
 ### 1. Variables de Entorno (.env)
+
 ```bash
 META_API_TOKEN='tu_token_aqui'
 WHATSAPP_API_VERSION='v24.0'
@@ -62,12 +72,12 @@ Ejecutar en Supabase SQL Editor:
 
 ```sql
 -- Agregar columna business_catalog_id a companies
-ALTER TABLE companies 
+ALTER TABLE companies
 ADD COLUMN IF NOT EXISTS business_catalog_id TEXT;
 
 -- Actualizar con el ID del catálogo de Meta
-UPDATE companies 
-SET business_catalog_id = '2902117086655075' 
+UPDATE companies
+SET business_catalog_id = '2902117086655075'
 WHERE id = 'tu-company-id';
 
 -- Verificar tabla products existe
@@ -151,14 +161,14 @@ async syncProducts() {
 
 El Sales Agent puede usar estas herramientas automáticamente:
 
-| Tool | Descripción | Parámetros |
-|------|-------------|------------|
-| `sync_inventory_to_meta` | Sincroniza Supabase → Meta | ninguno |
-| `sync_inventory_from_meta` | Sincroniza Meta → Supabase | ninguno |
-| `search_products` | Busca productos | `searchTerm: string` |
-| `get_product_info` | Info de producto | `productId: string` |
-| `update_product_availability` | Actualiza disponibilidad | `productId: string`, `available: boolean` |
-| `list_all_products` | Lista todos los productos | ninguno |
+| Tool                          | Descripción                | Parámetros                                |
+| ----------------------------- | -------------------------- | ----------------------------------------- |
+| `sync_inventory_to_meta`      | Sincroniza Supabase → Meta | ninguno                                   |
+| `sync_inventory_from_meta`    | Sincroniza Meta → Supabase | ninguno                                   |
+| `search_products`             | Busca productos            | `searchTerm: string`                      |
+| `get_product_info`            | Info de producto           | `productId: string`                       |
+| `update_product_availability` | Actualiza disponibilidad   | `productId: string`, `available: boolean` |
+| `list_all_products`           | Lista todos los productos  | ninguno                                   |
 
 ## Flujo de Funcionamiento
 
@@ -181,6 +191,7 @@ El Sales Agent puede usar estas herramientas automáticamente:
 ### Endpoints
 
 1. **Listar Productos**
+
    ```
    GET /v24.0/{catalog_id}/products
    ```
@@ -208,11 +219,13 @@ El Sales Agent puede usar estas herramientas automáticamente:
 ## Testing
 
 ### 1. Verificar Configuración
+
 ```bash
 curl http://localhost:3000/catalog-test/catalog-id/tu-company-id
 ```
 
 ### 2. Probar Sincronización
+
 ```bash
 # 1. Agregar productos en Supabase
 # 2. Ejecutar sync-to-meta
@@ -220,6 +233,7 @@ curl http://localhost:3000/catalog-test/catalog-id/tu-company-id
 ```
 
 ### 3. Probar con el Bot
+
 ```
 Envía un mensaje de WhatsApp:
 "Actualiza el catálogo"
@@ -228,12 +242,15 @@ Envía un mensaje de WhatsApp:
 ## Errores Comunes
 
 ### Error: Catalog ID no encontrado
+
 **Solución:** Configura `business_catalog_id` en la tabla `companies`
 
 ### Error: Invalid OAuth 2.0 Access Token
+
 **Solución:** Verifica que `META_API_TOKEN` sea válido
 
 ### Error: Too many calls
+
 **Solución:** Meta tiene rate limits, espera unos minutos
 
 ## Próximos Pasos Recomendados
@@ -253,6 +270,7 @@ Envía un mensaje de WhatsApp:
 ## Soporte
 
 Para reportar problemas o sugerencias:
+
 1. Revisa los logs del servidor
 2. Verifica la configuración en `.env`
 3. Consulta la documentación de Meta

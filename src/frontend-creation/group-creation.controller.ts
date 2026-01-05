@@ -25,7 +25,8 @@ export class GroupCreationController {
       });
     }
 
-    const { code, expiresAt } = await this.groupCreation.requestVerification(phone);
+    const { code, expiresAt } =
+      await this.groupCreation.requestVerification(phone);
     const latest = await this.groupCreation.getLatestRecord(phone);
 
     return {
@@ -72,7 +73,14 @@ export class GroupCreationController {
       enableYield?: boolean;
     },
   ) {
-    const required = ['name', 'phone', 'whatsappUsername', 'currency', 'amount', 'frequency'] as const;
+    const required = [
+      'name',
+      'phone',
+      'whatsappUsername',
+      'currency',
+      'amount',
+      'frequency',
+    ] as const;
     const missing = required.filter((key) => !payload[key]);
     if (missing.length > 0) {
       throw new BadRequestException({
@@ -88,11 +96,12 @@ export class GroupCreationController {
       });
     }
 
-    const { userId, stellarPublicKey, normalizedPhone } = await this.groupCreation.upsertUser({
-      phone: payload.phone!,
-      username: payload.whatsappUsername!,
-      preferredCurrency: payload.currency!,
-    });
+    const { userId, stellarPublicKey, normalizedPhone } =
+      await this.groupCreation.upsertUser({
+        phone: payload.phone!,
+        username: payload.whatsappUsername!,
+        preferredCurrency: payload.currency!,
+      });
 
     const draftGroup = await this.groupCreation.createDraftGroup({
       name: payload.name!,

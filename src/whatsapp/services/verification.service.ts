@@ -1,18 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GroupCreationService } from '../../frontend-creation/group-creation.service';
+import { FrontendWebhookService } from './frontend-webhook.service';
 
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
 
-  constructor(private readonly onboarding: GroupCreationService) {}
+  constructor(
+    private readonly onboarding: GroupCreationService,
+    private readonly frontendWebhook: FrontendWebhookService,
+  ) {}
 
   async issueCode(phone: string): Promise<{ code: string; expiresAt: Date }> {
-    const { code, expiresAt } = await this.onboarding.requestVerification(phone);
+    const { code, expiresAt } =
+      await this.onboarding.requestVerification(phone);
     return { code, expiresAt: new Date(expiresAt) };
   }
 
-  async confirmCode(phone: string, code: string, whatsappUsername?: string): Promise<boolean> {
+  async confirmCode(
+    phone: string,
+    code: string,
+    whatsappUsername?: string,
+  ): Promise<boolean> {
     if (!phone || !code) return false;
 
     const success = await this.onboarding.verifyCode(phone, code);
@@ -29,6 +38,14 @@ export class VerificationService {
       whatsappNumber: phone,
     });
 
+    await this.frontendWebhook.sendVerificationConfirmation({
+      phone,
+      verified: true,
+      timestamp: Date.now(),
+      whatsappUsername,
+      whatsappNumber: phone,
+    });
+
     return true;
   }
 
@@ -38,12 +55,18 @@ export class VerificationService {
     return Boolean(status.verified);
   }
 
-  async tryConfirmFromMessage(phone: string, text: string, whatsappUsername?: string): Promise<boolean> {
+  async tryConfirmFromMessage(
+    phone: string,
+    text: string,
+    whatsappUsername?: string,
+  ): Promise<boolean> {
     if (!text) return false;
 
     const code = this.extractCodeFromMessage(text);
     if (!code) {
-      this.logger.debug('No se encontró un código delimitado por ~* en el mensaje entrante.');
+      this.logger.debug(
+        'No se encontró un código delimitado por ~* en el mensaje entrante.',
+      );
       return false;
     }
 
@@ -53,7 +76,19 @@ export class VerificationService {
       `Verificación: código extraído ${code}, código esperado ${expectedCode} (telefono: ${phone})`,
     );
 
-    return this.confirmCode(phone, code, whatsappUsername);
+    const verified = await this.confirmCode(phone, code, whatsappUsername);
+
+    if (verified) {
+      await this.frontendWebhook.sendVerificationConfirmation({
+        phone,
+        verified: true,
+        timestamp: Date.now(),
+        whatsappUsername,
+        whatsappNumber: phone,
+      });
+    }
+
+    return verified;
   }
 
   private extractCodeFromMessage(text: string): string | null {

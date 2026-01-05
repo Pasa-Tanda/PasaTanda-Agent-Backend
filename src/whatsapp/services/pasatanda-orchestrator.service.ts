@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Gemini, InMemoryRunner, LlmAgent, isFinalResponse, stringifyContent } from '@google/adk';
+import {
+  Gemini,
+  InMemoryRunner,
+  LlmAgent,
+  isFinalResponse,
+  stringifyContent,
+} from '@google/adk';
 import type { RouterAction, RouterMessageContext } from '../whatsapp.types';
 import { GameMasterAgentService } from '../agents/game-master.agent';
 import { TreasurerAgentService } from '../agents/treasurer.agent';
@@ -63,7 +69,9 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
     });
   }
 
-  async route(context: RouterMessageContext): Promise<{ intent: PasatandaIntent; actions: RouterAction[] }> {
+  async route(
+    context: RouterMessageContext,
+  ): Promise<{ intent: PasatandaIntent; actions: RouterAction[] }> {
     const phoneNumberId =
       context.phoneNumberId ||
       this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID', '') ||
@@ -76,8 +84,15 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
         const actions = await this.treasurer.handlePaymentRequest({
           sender: context.senderId,
           payload: {
-            amountUsd: Number(classification.entities.amountUsd ?? classification.entities.amount ?? 1),
-            payTo: classification.entities.payTo ?? classification.entities.stellarPublicKey ?? context.senderId,
+            amountUsd: Number(
+              classification.entities.amountUsd ??
+                classification.entities.amount ??
+                1,
+            ),
+            payTo:
+              classification.entities.payTo ??
+              classification.entities.stellarPublicKey ??
+              context.senderId,
             details: classification.entities.details,
           },
         });
@@ -85,7 +100,9 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
       }
       case 'CHECK_STATUS': {
         const actions = await this.gameMaster.handleCheckStatus({
-          groupId: classification.entities.groupId ?? classification.entities.group_whatsapp_id,
+          groupId:
+            classification.entities.groupId ??
+            classification.entities.group_whatsapp_id,
         });
         return { intent: classification.intent, actions };
       }
@@ -94,9 +111,15 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
           phoneNumberId,
           sender: context.senderId,
           payload: {
-            subject: classification.entities.subject ?? classification.entities.groupName ?? 'PasaTanda',
+            subject:
+              classification.entities.subject ??
+              classification.entities.groupName ??
+              'PasaTanda',
             participants: classification.entities.participants ?? [],
-            amountUsd: classification.entities.amountUsd ?? classification.entities.amount ?? 1,
+            amountUsd:
+              classification.entities.amountUsd ??
+              classification.entities.amount ??
+              1,
             frequencyDays: classification.entities.frequencyDays ?? 7,
             yieldEnabled: classification.entities.yieldEnabled ?? true,
           },
@@ -115,7 +138,9 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
         return { intent: classification.intent, actions };
       }
       case 'UPLOAD_PROOF': {
-        const actions = await this.validator.handleUploadProof(context.whatsappMessageId);
+        const actions = await this.validator.handleUploadProof(
+          context.whatsappMessageId,
+        );
         return { intent: classification.intent, actions };
       }
       default:
@@ -131,7 +156,9 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
     }
   }
 
-  private async classify(context: RouterMessageContext): Promise<ClassificationResult> {
+  private async classify(
+    context: RouterMessageContext,
+  ): Promise<ClassificationResult> {
     const sessionId = `${this.companyId}:${context.senderId}`;
     const prompt = `${context.originalText}`;
 
@@ -155,7 +182,9 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
         confidence: parsed.confidence ?? 0,
       };
     } catch (error) {
-      this.logger.warn(`Fallo parseando respuesta del orquestador: ${(error as Error).message}`);
+      this.logger.warn(
+        `Fallo parseando respuesta del orquestador: ${(error as Error).message}`,
+      );
       return { intent: 'UNKNOWN', entities: {}, confidence: 0 };
     }
   }

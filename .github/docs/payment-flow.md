@@ -1,11 +1,11 @@
 sequenceDiagram
-    actor User as Usuario (WhatsApp/Web)
-    participant FE as Frontend (Next.js)
-    participant AgentBE as Agent Backend (Orquestador)
-    participant PayBE as Payment Backend (Pasarela/HotWallet)
-    participant Bank as Banco (Fiat)
-    participant Stellar as Blockchain (Soroban)
-    autonumber
+actor User as Usuario (WhatsApp/Web)
+participant FE as Frontend (Next.js)
+participant AgentBE as Agent Backend (Orquestador)
+participant PayBE as Payment Backend (Pasarela/HotWallet)
+participant Bank as Banco (Fiat)
+participant Stellar as Blockchain (Soroban)
+autonumber
 
     rect rgb(230, 240, 255)
         note right of User: --- FASE 1: GENERACIÓN DE COBRO (Discovery) ---
@@ -26,7 +26,7 @@ sequenceDiagram
         User->>FE: Abre Link (/pagos/{uuid})
         FE->>AgentBE: GET /orders/{uuid}
         AgentBE-->>FE: Return: { status: "PENDING", challenge_xdr: "...", qr_url: "..." }
-        
+
         alt Selección: PAGO CON QR (Fiat)
             FE->>User: Muestra QR
             User->>Bank: Transferencia Bancaria
@@ -49,14 +49,14 @@ sequenceDiagram
 
     rect rgb(230, 255, 230)
         note right of User: --- FASE 3: VERIFICACIÓN UNIFICADA (GET /api/pay) ---
-        
+
         alt CAMINO A: Verificación Fiat (Con Payload)
             AgentBE->>PayBE: GET /api/pay
             Note right of AgentBE: Body: { proof_metadata: { ... } }
-            
+
             PayBE->>PayBE: Detecta Payload -> Modo Fiat
             PayBE->>Bank: Consulta API Banco
-            
+
             alt Banco Confirma
                 PayBE->>PayBE: Ejecuta On-Ramp (HotWallet -> Contract)
                 PayBE->>Stellar: deposit_for(Backend, User, Amount)
@@ -69,15 +69,15 @@ sequenceDiagram
                 AgentBE->>AgentBE: Status: REJECTED
                 AgentBE->>User: WhatsApp: "Error: Comprobante inválido."
             end
-        
+
         else CAMINO B: Verificación Crypto (Con Authorization Header)
             AgentBE->>PayBE: GET /api/pay
             Note right of AgentBE: Header: Authorization: x402 <Signed_XDR>
-            
+
             PayBE->>PayBE: Detecta Auth Header -> Modo X402
             PayBE->>PayBE: Valida Firmas y Secuencia
             PayBE->>Stellar: Submit Transaction (XDR firmado por user)
-            
+
             alt Tx Confirmada
                 Stellar-->>PayBE: Tx Success & Events
                 PayBE-->>AgentBE: 200 OK (Resource Released / Receipt)
@@ -96,7 +96,7 @@ sequenceDiagram
         Note over Stellar: (Sin cambios en lógica de retiro)
         AgentBE->>AgentBE: Detecta Ganador
         AgentBE->>User: "¿Retiro Banco o Wallet?"
-        
+
         alt CUENTA BANCARIA
             User->>AgentBE: "Banco"
             AgentBE->>PayBE: POST /offramp

@@ -27,18 +27,26 @@ export class GameMasterAgentService {
     sender: string;
     payload: CreateGroupPayload;
   }): Promise<RouterAction[]> {
-    const subject = params.payload.subject || `PasaTanda ${new Date().getMonth() + 1}`;
-    const participants = Array.from(new Set([params.sender, ...params.payload.participants])).filter(Boolean);
+    const subject =
+      params.payload.subject || `PasaTanda ${new Date().getMonth() + 1}`;
+    const participants = Array.from(
+      new Set([params.sender, ...params.payload.participants]),
+    ).filter(Boolean);
 
     if (!params.phoneNumberId) {
-      throw new Error('No hay phone_number_id configurado para crear grupos de WhatsApp');
+      throw new Error(
+        'No hay phone_number_id configurado para crear grupos de WhatsApp',
+      );
     }
 
     // Crear grupo en WhatsApp
-    const groupResult = await this.groupService.createGroup(params.phoneNumberId, {
-      subject,
-      participants,
-    });
+    const groupResult = await this.groupService.createGroup(
+      params.phoneNumberId,
+      {
+        subject,
+        participants,
+      },
+    );
 
     // Crear usuario + membresía y grupo draft en base de datos
     const user = await this.groupCreation.upsertUser({
@@ -80,7 +88,12 @@ export class GameMasterAgentService {
   }): Promise<RouterAction[]> {
     const groupId = params.groupId;
     if (!groupId) {
-      return [{ type: 'text', text: 'No tengo el ID del grupo. Envíame el comando dentro del grupo para detectarlo automáticamente.' }];
+      return [
+        {
+          type: 'text',
+          text: 'No tengo el ID del grupo. Envíame el comando dentro del grupo para detectarlo automáticamente.',
+        },
+      ];
     }
 
     const rows = await this.supabase.query<{
@@ -105,15 +118,30 @@ export class GameMasterAgentService {
 
     const group = rows[0];
     if (!group) {
-      return [{ type: 'text', text: 'No encontré el grupo en base de datos. Crea la tanda primero desde el formulario.' }];
+      return [
+        {
+          type: 'text',
+          text: 'No encontré el grupo en base de datos. Crea la tanda primero desde el formulario.',
+        },
+      ];
     }
 
     if (group.contract_address) {
-      return [{ type: 'text', text: `La tanda ya está activa. Contrato: ${group.contract_address}` }];
+      return [
+        {
+          type: 'text',
+          text: `La tanda ya está activa. Contrato: ${group.contract_address}`,
+        },
+      ];
     }
 
     if (group.admin_phone !== params.sender) {
-      return [{ type: 'text', text: 'Solo el admin que creó la tanda puede iniciarla.' }];
+      return [
+        {
+          type: 'text',
+          text: 'Solo el admin que creó la tanda puede iniciarla.',
+        },
+      ];
     }
 
     const draftOrder = await this.supabase.query<{
@@ -132,7 +160,12 @@ export class GameMasterAgentService {
     const amountUsd = params.amountUsd ?? draftOrder[0]?.amount_crypto_usdc;
 
     if (!amountBs || !amountUsd) {
-      return [{ type: 'text', text: 'Faltan montos para iniciar la tanda. Define amountBs y amountUsdc en el comando o vuelve a crear desde el FE.' }];
+      return [
+        {
+          type: 'text',
+          text: 'Faltan montos para iniciar la tanda. Define amountBs y amountUsdc en el comando o vuelve a crear desde el FE.',
+        },
+      ];
     }
 
     return [
@@ -161,7 +194,10 @@ export class GameMasterAgentService {
 
     if (!rows.length) {
       return [
-        { type: 'text', text: 'No encontré ese grupo en la base de datos. Revisa el ID o vuelve a crearlo.' },
+        {
+          type: 'text',
+          text: 'No encontré ese grupo en la base de datos. Revisa el ID o vuelve a crearlo.',
+        },
       ];
     }
 

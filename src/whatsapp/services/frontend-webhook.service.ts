@@ -29,9 +29,13 @@ export class FrontendWebhookService {
     this.secret = config.get<string>('WEBHOOK_SECRET');
   }
 
-  async sendVerificationConfirmation(payload: VerificationPayload): Promise<void> {
+  async sendVerificationConfirmation(
+    payload: VerificationPayload,
+  ): Promise<void> {
     if (!this.webhookBase) {
-      this.logger.warn('Webhook base URL no configurada, se omite confirmación');
+      this.logger.warn(
+        'Webhook base URL no configurada, se omite confirmación',
+      );
       return;
     }
 
@@ -47,7 +51,9 @@ export class FrontendWebhookService {
     const headers: Record<string, string> = {};
     const serialized = JSON.stringify(body);
     if (this.secret) {
-      const signature = createHmac('sha256', this.secret).update(serialized).digest('hex');
+      const signature = createHmac('sha256', this.secret)
+        .update(serialized)
+        .digest('hex');
       headers['x-signature'] = signature;
     }
 
@@ -55,12 +61,16 @@ export class FrontendWebhookService {
       await firstValueFrom(this.http.post(url, body, { headers }));
       this.logger.log(`Webhook de verificación enviado a ${url}`);
     } catch (error) {
-      const safe = error as Error & { response?: { status?: number; data?: unknown } };
+      const safe = error as Error & {
+        response?: { status?: number; data?: unknown };
+      };
       this.logger.warn(
         `No se pudo notificar verificación (${safe.response?.status ?? 'sin status'}): ${safe.message}`,
       );
       if (safe.response?.data) {
-        this.logger.debug(`Respuesta del webhook: ${JSON.stringify(safe.response.data)}`);
+        this.logger.debug(
+          `Respuesta del webhook: ${JSON.stringify(safe.response.data)}`,
+        );
       }
     }
   }

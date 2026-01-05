@@ -48,7 +48,9 @@ export class TreasurerAgentService {
       [negotiation.challenge ?? null, negotiation.qrBase64 ?? null, orderId],
     );
 
-    const payUrl = this.paymentPage ? `${this.paymentPage.replace(/\/$/, '')}/pagos/${orderId}` : undefined;
+    const payUrl = this.paymentPage
+      ? `${this.paymentPage.replace(/\/$/, '')}/pagos/${orderId}`
+      : undefined;
 
     const actions: RouterAction[] = [
       {
@@ -63,7 +65,8 @@ export class TreasurerAgentService {
         type: 'image',
         to: params.sender,
         base64: negotiation.qrBase64,
-        caption: 'Escanea el QR para pagar en banco. Luego envía tu comprobante aquí.',
+        caption:
+          'Escanea el QR para pagar en banco. Luego envía tu comprobante aquí.',
         mimeType: 'image/png',
       });
     }
@@ -82,7 +85,11 @@ export class TreasurerAgentService {
 
     await this.supabase.query(
       `UPDATE payment_orders SET proof_metadata = $1, status = $2 WHERE id = $3` as string,
-      [params.proofMetadata, verification.success ? 'VERIFIED' : 'REJECTED', params.orderId],
+      [
+        params.proofMetadata,
+        verification.success ? 'VERIFIED' : 'REJECTED',
+        params.orderId,
+      ],
     );
 
     if (verification.success) {

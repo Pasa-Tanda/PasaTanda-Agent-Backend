@@ -30,18 +30,29 @@ export class GroupService {
     this.apiToken = config.get<string>('META_API_TOKEN', '');
   }
 
-  async createGroup(phoneNumberId: string, payload: GroupCreatePayload): Promise<{ id?: string }> {
+  async createGroup(
+    phoneNumberId: string,
+    payload: GroupCreatePayload,
+  ): Promise<{ id?: string }> {
     const url = this.buildUrl(`${phoneNumberId}/groups`);
     const response = await this.call('post', url, payload);
     return { id: response?.id ?? response?.group_id };
   }
 
-  async addParticipants(phoneNumberId: string, groupId: string, participants: string[]): Promise<void> {
+  async addParticipants(
+    phoneNumberId: string,
+    groupId: string,
+    participants: string[],
+  ): Promise<void> {
     const url = this.buildUrl(`${groupId}/participants`);
     await this.call('post', url, { participants } as ParticipantsPayload);
   }
 
-  async removeParticipants(phoneNumberId: string, groupId: string, participants: string[]): Promise<void> {
+  async removeParticipants(
+    phoneNumberId: string,
+    groupId: string,
+    participants: string[],
+  ): Promise<void> {
     const url = this.buildUrl(`${groupId}/participants`);
     await this.call('delete', url, { participants } as ParticipantsPayload);
   }
@@ -65,7 +76,11 @@ export class GroupService {
     return `https://graph.facebook.com/${this.apiVersion}/${path}`;
   }
 
-  private async call(method: 'post' | 'get' | 'delete', url: string, data?: Record<string, any>): Promise<any> {
+  private async call(
+    method: 'post' | 'get' | 'delete',
+    url: string,
+    data?: Record<string, any>,
+  ): Promise<any> {
     try {
       const response = await firstValueFrom(
         this.http.request({
@@ -80,7 +95,9 @@ export class GroupService {
       );
       return response.data;
     } catch (error) {
-      this.logger.error(`WhatsApp Groups API fallo ${method.toUpperCase()} ${url}: ${(error as Error).message}`);
+      this.logger.error(
+        `WhatsApp Groups API fallo ${method.toUpperCase()} ${url}: ${(error as Error).message}`,
+      );
       throw error;
     }
   }

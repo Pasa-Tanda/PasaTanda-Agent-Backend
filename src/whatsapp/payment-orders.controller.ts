@@ -67,7 +67,10 @@ export class PaymentOrdersController {
   }
 
   @Post(':id/claim')
-  @ApiOperation({ summary: 'Marca la orden como reclamada por el usuario y dispara validación' })
+  @ApiOperation({
+    summary:
+      'Marca la orden como reclamada por el usuario y dispara validación',
+  })
   async claimOrder(@Param('id') id: string, @Body() body: ClaimOrderDto) {
     if (!body.paymentType) {
       throw new HttpException('paymentType requerido', HttpStatus.BAD_REQUEST);
@@ -75,7 +78,10 @@ export class PaymentOrdersController {
 
     if (body.paymentType === 'fiat') {
       if (!body.proofMetadata) {
-        throw new HttpException('proofMetadata requerido para fiat', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'proofMetadata requerido para fiat',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       await this.supabase.query(
@@ -93,7 +99,10 @@ export class PaymentOrdersController {
 
     if (body.paymentType === 'crypto') {
       if (!body.xPayment) {
-        throw new HttpException('xPayment requerido para crypto', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'xPayment requerido para crypto',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       const { success, txHash } = await this.payments.forwardCrypto({

@@ -28,7 +28,9 @@ export class PinataService {
     this.enabled = !!(this.jwt || (this.apiKey && this.apiSecret));
 
     if (!this.enabled) {
-      this.logger.warn('Pinata no configurado. Las imágenes no se subirán a IPFS.');
+      this.logger.warn(
+        'Pinata no configurado. Las imágenes no se subirán a IPFS.',
+      );
     }
   }
 

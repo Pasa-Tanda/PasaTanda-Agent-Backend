@@ -8,7 +8,6 @@ import { EncryptionService } from './services/encryption.service';
 import { PinataService } from './services/pinata.service';
 import { PaymentProxyController } from './payment-proxy.controller';
 import { PaymentOrdersController } from './payment-orders.controller';
-import { PasatandaOrchestratorService } from './services/pasatanda-orchestrator.service';
 import { GameMasterAgentService } from './agents/game-master.agent';
 import { TreasurerAgentService } from './agents/treasurer.agent';
 import { ValidatorAgentService } from './agents/validator.agent';
@@ -18,6 +17,18 @@ import { GroupService } from './services/group.service';
 import { VerificationService } from './services/verification.service';
 import { FrontendWebhookService } from './services/frontend-webhook.service';
 import { OnboardingModule } from '../frontend-creation/onboarding.module';
+// ADK Services
+import { SupabaseSessionService } from './services/supabase-session.service';
+import { PasatandaToolsService } from './agents/pasatanda-tools.service';
+import {
+  AdkGameMasterAgent,
+  AdkTreasurerAgent,
+  AdkValidatorAgent,
+} from './agents/adk-subagents';
+import { AdkOrchestratorService } from './agents/adk-orchestrator.service';
+import { WhatsAppMessagingService } from './services/whatsapp-messaging.service';
+import { SupabaseService } from './services/supabase.service';
+import { GeminiService } from './services/gemini.service';
 
 @Module({
   imports: [HttpModule, ConfigModule, forwardRef(() => OnboardingModule)],
@@ -28,19 +39,36 @@ import { OnboardingModule } from '../frontend-creation/onboarding.module';
     PaymentOrdersController,
   ],
   providers: [
+    // Core services
     WhatsappService,
     EncryptionService,
     PinataService,
-    PasatandaOrchestratorService,
+    SupabaseService,
+    GeminiService,
+
+    // Agentes activos
     GameMasterAgentService,
     TreasurerAgentService,
     ValidatorAgentService,
+
+    // ADK services
+    SupabaseSessionService,
+    PasatandaToolsService,
+    AdkGameMasterAgent,
+    AdkTreasurerAgent,
+    AdkValidatorAgent,
+    AdkOrchestratorService,
+
+    // WhatsApp messaging
+    WhatsAppMessagingService,
+
+    // Business services
     PaymentIntegrationService,
     SorobanClientService,
     GroupService,
     VerificationService,
     FrontendWebhookService,
   ],
-  exports: [WhatsappService],
+  exports: [WhatsappService, WhatsAppMessagingService, AdkOrchestratorService],
 })
 export class WhatsappModule {}
