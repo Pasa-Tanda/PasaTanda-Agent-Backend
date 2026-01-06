@@ -175,61 +175,36 @@ export class AdkOrchestratorService implements OnModuleInit {
     // Instrucción del orquestador principal
     const orchestratorInstruction = `Eres el orquestador principal de PasaTanda, una aplicación de tandas (grupos de ahorro rotativo) en WhatsApp.
 
-TU ROL:
-Debes entender la intención del usuario y ejecutar la acción apropiada usando tus herramientas.
-NO debes transferir a otros agentes, usa directamente las herramientas disponibles.
+  TU ROL:
+  - Identifica la intención del usuario.
+  - DEBES delegar al subagente correcto (transferencia) para ejecutar tools de negocio.
+  - EXCEPCIÓN: la verificación de teléfono se ejecuta únicamente desde el orquestador con el tool \`verify_phone_code\`.
 
-INTENCIONES QUE MANEJAS:
+  SUBAGENTES DISPONIBLES (transfiere según corresponda):
+  1) \`game_master\`: creación/gestión de grupos, participantes, configuración, estado.
+  2) \`treasurer\`: pagos, generación de links/QR, validaciones relacionadas a pagos.
+  3) \`validator\`: análisis/verificación de comprobantes y datos extraídos.
 
-1. **CREAR GRUPO/TANDA** - Usuario quiere crear una nueva tanda
-   - Palabras clave: "crear", "nueva tanda", "iniciar grupo", "armar tanda"
-   - Usa: create_pasatanda_group
+  REGLAS DE TOOLS:
+  - No llames herramientas de grupos/pagos directamente desde el orquestador.
+  - Sólo puedes llamar \`verify_phone_code\`.
 
-2. **AGREGAR PARTICIPANTE** - Usuario quiere agregar miembros
-   - Palabras clave: "agregar", "invitar", "añadir a", "incluir a"
-   - Usa: add_participant_to_group
+  INTENCIONES PRINCIPALES:
+  - **VERIFICAR TELÉFONO**: el usuario envía un OTP (p.ej. ~*123456*~).
+    - Extrae el código dentro del agente y pásalo como argumento \`code\` al tool \`verify_phone_code\`. No envíes todo el texto al tool.
+    - Llama \`verify_phone_code\` con \`senderPhone\` y el código extraído.
+  - **CREAR/CONFIGURAR/CONSULTAR**: transfiere a \`game_master\`.
+  - **PAGAR**: transfiere a \`treasurer\`.
+  - **COMPROBANTE**: transfiere a \`validator\` (o \`treasurer\` si ya hay orden y sólo falta confirmar).
+  - **AYUDA**: responde tú mismo sin tools, de forma breve.
 
-3. **CONFIGURAR TANDA** - Usuario quiere cambiar valores
-   - Palabras clave: "configurar", "cambiar monto", "modificar frecuencia"
-   - Usa: configure_tanda
+  ESTADO PERSISTENTE (session.state):
+  - Puedes apoyarte en estos valores si existen: grupo seleccionado {user:selected_group_id?}, moneda preferida {user:preferred_currency?}, teléfono verificado {user:phone_verified?}.
 
-4. **CONSULTAR ESTADO** - Usuario quiere ver información
-   - Palabras clave: "estado", "cómo va", "info", "ver tanda", "mi turno"
-   - Usa: check_group_status, get_user_info
-
-5. **PAGAR CUOTA** - Usuario quiere pagar
-   - Palabras clave: "pagar", "cuota", "link de pago", "QR"
-   - Usa: create_payment_link
-
-6. **VERIFICAR COMPROBANTE** - Usuario subió comprobante
-  - Palabras clave: "comprobante", "voucher", "recibo", "pagué", imagen
-  - Usa: verify_payment_proof
-
-7. **VERIFICAR TELÉFONO** - Usuario envía un código OTP (~*ABC123*~)
-  - Palabras clave: "código", "verificación", "OTP", "PIN"
-  - Extrae el código (un OTP de 6 cifras) dentro del agente y pásalo como argumento \`code\` al tool \`verify_phone_code\`. No envíes todo el texto al tool.
-  - Usa: verify_phone_code con senderPhone y el código extraído
-
-8. **AYUDA GENERAL** - Usuario necesita ayuda
-  - Palabras clave: "ayuda", "cómo funciona", "qué puedo hacer"
-  - Responde explicando las funciones disponibles
-
-CONTEXTO DEL USUARIO:
-- El número de teléfono del usuario está disponible en el contexto
-- Puedes consultar sus grupos con get_user_info
-
-FORMATO DE RESPUESTA:
-- Responde en español
-- Sé conciso pero amigable
-- Usa emojis moderadamente 🎯
-- Si hay error, explica qué salió mal y cómo solucionarlo
-- Si falta información, pregunta específicamente qué necesitas
-
-EJEMPLO DE INTERACCIONES:
-- "quiero crear una tanda" → Usa create_pasatanda_group con los datos del contexto
-- "pagar 100" → Usa create_payment_link con amountUsd: 100
-- "cómo va mi tanda" → Usa get_user_info para ver grupos, luego check_group_status
-- "agregar a 584147891234" → Usa add_participant_to_group`;
+  FORMATO DE RESPUESTA:
+  - Responde en español.
+  - Sé conciso pero amigable.
+  - Si falta información, pregunta específicamente qué necesitas.`;
 
     // Crear el agente orquestador con todas las herramientas
     try {
@@ -238,8 +213,8 @@ EJEMPLO DE INTERACCIONES:
         model,
         instruction: orchestratorInstruction,
         description:
-          'Orquestador principal de PasaTanda que maneja todas las funciones de tandas',
-        //tools: this.tools.allTools,
+          'Orquestador principal que enruta intenciones y delega a subagentes',
+        tools: [this.tools.verifyPhoneCodeTool],
         // Sub-agentes disponibles para transfer si es necesario
         subAgents: [
           this.gameMasterAgent.agent,
@@ -494,22 +469,50 @@ EJEMPLO DE INTERACCIONES:
     const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch) {
       try {
-        const structuredData = JSON.parse(jsonMatch[1]);
+        const parsed: unknown = JSON.parse(jsonMatch[1]);
+        if (!parsed || typeof parsed !== 'object') {
+          throw new Error('JSON no es un objeto');
+        }
+
+        const data = parsed as Record<string, unknown>;
+        const paymentUrl =
+          typeof data.paymentUrl === 'string'
+            ? data.paymentUrl
+            : typeof data.payment_url === 'string'
+              ? data.payment_url
+              : undefined;
 
         // Si es un link de pago, enviar template
-        if (structuredData.paymentUrl || structuredData.payment_url) {
+        if (paymentUrl) {
+          const month = typeof data.month === 'string' ? data.month : 'Cuota';
+          const totalAmount =
+            typeof data.totalAmount === 'string' ||
+            typeof data.totalAmount === 'number'
+              ? String(data.totalAmount)
+              : typeof data.amount === 'string' ||
+                  typeof data.amount === 'number'
+                ? String(data.amount)
+                : '0';
+          const exchangeRate =
+            typeof data.exchangeRate === 'string' ||
+            typeof data.exchangeRate === 'number'
+              ? String(data.exchangeRate)
+              : '1.00';
+          const groupName =
+            typeof data.groupName === 'string' ? data.groupName : 'Tu Tanda';
+          const headerImageUrl =
+            typeof data.qrImageUrl === 'string' ? data.qrImageUrl : undefined;
+
           actions.push({
             type: 'template',
             templateName: 'payment_request',
             templateParams: {
-              month: structuredData.month || 'Cuota',
-              totalAmount:
-                structuredData.totalAmount || structuredData.amount || '0',
-              exchangeRate: structuredData.exchangeRate || '1.00',
-              groupName: structuredData.groupName || 'Tu Tanda',
-              paymentUrl:
-                structuredData.paymentUrl || structuredData.payment_url,
-              headerImageUrl: structuredData.qrImageUrl,
+              month,
+              totalAmount,
+              exchangeRate,
+              groupName,
+              paymentUrl,
+              headerImageUrl,
             },
             to: defaultRecipient,
           });
@@ -529,23 +532,41 @@ EJEMPLO DE INTERACCIONES:
         }
 
         // Si hay opciones, crear botones interactivos
-        if (structuredData.options && Array.isArray(structuredData.options)) {
-          const buttons = structuredData.options
+        const options = Array.isArray(data.options) ? data.options : undefined;
+        if (options) {
+          const buttons: WhatsAppInteractiveButton[] = options
             .slice(0, 3)
-            .map((opt: any, idx: number) => ({
-              type: 'reply' as const,
-              reply: {
-                id: opt.id || `option_${idx}`,
-                title: String(opt.title || opt.label || opt).slice(0, 20),
-              },
-            }));
+            .map((opt, idx: number) => {
+              const optObj =
+                opt && typeof opt === 'object'
+                  ? (opt as Record<string, unknown>)
+                  : undefined;
+              const id =
+                optObj && typeof optObj.id === 'string'
+                  ? optObj.id
+                  : `option_${idx}`;
+              const titleRaw =
+                optObj && typeof optObj.title === 'string'
+                  ? optObj.title
+                  : optObj && typeof optObj.label === 'string'
+                    ? optObj.label
+                    : String(opt);
+
+              return {
+                type: 'reply',
+                reply: {
+                  id,
+                  title: titleRaw.slice(0, 20),
+                },
+              };
+            });
 
           if (buttons.length > 0) {
             actions.push({
               type: 'interactive_buttons',
               text:
-                structuredData.message ||
-                structuredData.text ||
+                (typeof data.message === 'string' && data.message) ||
+                (typeof data.text === 'string' && data.text) ||
                 'Selecciona una opción:',
               buttons,
               to: defaultRecipient,

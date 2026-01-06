@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { LlmAgent, Gemini, FunctionTool } from '@google/adk';
-import { z } from 'zod';
+import { LlmAgent, Gemini } from '@google/adk';
 import { PasatandaToolsService } from './pasatanda-tools.service';
 
 /**
@@ -35,6 +34,7 @@ export class AdkGameMasterAgent {
 FUNCIONES PRINCIPALES:
 1. **Crear grupos**: Cuando el usuario quiere crear una nueva tanda, usa create_pasatanda_group.
 2. **Agregar participantes**: Usa add_participant_to_group para agregar miembros a un grupo.
+3. **Responder invitaciones**: Usa respond_to_invitation cuando un usuario quiera aceptar o rechazar una invitación.
 3. **Configurar valores**: Usa configure_tanda para ajustar montos, frecuencia y opciones.
 4. **Consultar estado**: Usa check_group_status para ver información de un grupo.
 5. **Información de usuario**: Usa get_user_info para ver los grupos de un usuario.
@@ -42,9 +42,14 @@ FUNCIONES PRINCIPALES:
 CONTEXTO IMPORTANTE:
 - Todos los grupos inician en estado DRAFT
 - El creador del grupo es automáticamente el administrador
-- Los turnos se asignan secuencialmente al agregar participantes
+- Los participantes se unen mediante invitación (ACEPTAR/RECHAZAR + código)
+- Los turnos se asignan secuencialmente cuando aceptan la invitación
 - Los montos son en USD (se convierten a Bs para pagos locales)
 - yield_enabled activa la generación de rendimientos en el contrato Stellar
+
+INVITACIONES:
+- Si el usuario escribe algo como "ACEPTAR ABCD1234" o "RECHAZAR ABCD1234", extrae el código y llama respond_to_invitation.
+- invitedPhone debe ser el teléfono del usuario que está respondiendo (el sender actual).
 
 RESPUESTAS:
 - Siempre confirma las acciones realizadas
@@ -61,6 +66,7 @@ RESPUESTAS:
       tools: [
         this.tools.createGroupTool,
         this.tools.addParticipantTool,
+        this.tools.respondToInvitationTool,
         this.tools.configureGroupTool,
         this.tools.checkGroupStatusTool,
         this.tools.getUserInfoTool,

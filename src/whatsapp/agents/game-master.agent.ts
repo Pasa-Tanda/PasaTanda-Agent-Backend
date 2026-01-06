@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../services/supabase.service';
-import { GroupService } from '../services/group.service';
 import { GroupCreationService } from '../../frontend-creation/group-creation.service';
+import { WhatsAppMessagingService } from '../services/whatsapp-messaging.service';
 import type { RouterAction } from '../whatsapp.types';
+import { randomUUID } from 'node:crypto';
 
 interface CreateGroupPayload {
   subject: string;
@@ -18,8 +19,8 @@ export class GameMasterAgentService {
 
   constructor(
     private readonly supabase: SupabaseService,
-    private readonly groupService: GroupService,
     private readonly groupCreation: GroupCreationService,
+    private readonly messaging: WhatsAppMessagingService,
   ) {}
 
   async handleCreateGroup(params: {
@@ -29,24 +30,9 @@ export class GameMasterAgentService {
   }): Promise<RouterAction[]> {
     const subject =
       params.payload.subject || `PasaTanda ${new Date().getMonth() + 1}`;
-    const participants = Array.from(
-      new Set([params.sender, ...params.payload.participants]),
-    ).filter(Boolean);
-
-    if (!params.phoneNumberId) {
-      throw new Error(
-        'No hay phone_number_id configurado para crear grupos de WhatsApp',
-      );
-    }
-
-    // Crear grupo en WhatsApp
-    const groupResult = await this.groupService.createGroup(
-      params.phoneNumberId,
-      {
-        subject,
-        participants,
-      },
-    );
+    const invitedPhones = Array.from(new Set(params.payload.participants ?? []))
+      .filter(Boolean)
+      .filter((phone) => phone !== params.sender);
 
     // Crear usuario + membresía y grupo draft en base de datos
     const user = await this.groupCreation.upsertUser({
@@ -60,7 +46,6 @@ export class GameMasterAgentService {
       amount: params.payload.amountUsd ?? 1,
       frequencyDays: params.payload.frequencyDays ?? 7,
       yieldEnabled: params.payload.yieldEnabled ?? true,
-      whatsappGroupId: groupResult.id,
     });
 
     await this.groupCreation.createMembership({
@@ -70,12 +55,64 @@ export class GameMasterAgentService {
       turnNumber: 1,
     });
 
+    // Crear invitaciones y enviar mensajes a cada participante.
+    const invitationsSent = await Promise.all(
+      invitedPhones.map(async (invitedPhone) => {
+        const inviteCode = await this.createInvitationCodeWithRetry({
+          groupDbId: draftGroup.groupDbId,
+          inviterPhone: params.sender,
+          invitedPhone,
+        });
+
+        await this.messaging.sendText(
+          invitedPhone,
+          `📩 Te invitaron a unirte a la tanda "${subject}".\n\nPara aceptar responde: ACEPTAR ${inviteCode}\nPara rechazar responde: RECHAZAR ${inviteCode}`,
+          { phoneNumberId: params.phoneNumberId },
+        );
+
+        return inviteCode;
+      }),
+    );
+
     return [
       {
         type: 'text',
-        text: `Grupo creado: ${subject}\nWA Group: ${groupResult.id ?? 'pendiente'}\nContrato: pendiente (usa "iniciar tanda" cuando esté listo)`,
+        text: `Grupo creado: ${subject}\nEstado: DRAFT\nInvitaciones enviadas: ${invitationsSent.length}\nContrato: pendiente (usa "iniciar tanda" cuando esté listo)`,
       },
     ];
+  }
+
+  private async createInvitationCodeWithRetry(params: {
+    groupDbId: number;
+    inviterPhone: string;
+    invitedPhone: string;
+  }): Promise<string> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const inviteCode = randomUUID()
+        .replace(/-/g, '')
+        .slice(0, 8)
+        .toUpperCase();
+      const rows = await this.supabase.query<{ id: number }>(
+        `
+          insert into group_invitations (group_id, inviter_phone, invited_phone, invite_code, status)
+          values ($1, $2, $3, $4, 'PENDING')
+          on conflict (invite_code) do nothing
+          returning id
+        `,
+        [
+          params.groupDbId,
+          params.inviterPhone,
+          params.invitedPhone,
+          inviteCode,
+        ],
+      );
+
+      if (rows.length) {
+        return inviteCode;
+      }
+    }
+
+    throw new Error('No se pudo generar un código de invitación único.');
   }
 
   async handleStartTanda(params: {
@@ -187,7 +224,13 @@ export class GameMasterAgentService {
       ];
     }
 
-    const rows = await this.supabase.query(
+    const rows = await this.supabase.query<{
+      name: string;
+      status: string;
+      contract_address: string | null;
+      frequency_days: number | null;
+      yield_enabled: boolean | null;
+    }>(
       'SELECT name, status, contract_address, frequency_days, yield_enabled FROM groups WHERE group_whatsapp_id = $1 OR id::text = $1 LIMIT 1',
       [params.groupId],
     );
@@ -201,7 +244,7 @@ export class GameMasterAgentService {
       ];
     }
 
-    const group = rows[0] as any;
+    const group = rows[0];
     return [
       {
         type: 'text',

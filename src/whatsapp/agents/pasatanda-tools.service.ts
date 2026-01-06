@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FunctionTool } from '@google/adk';
+import { FunctionTool, ToolContext } from '@google/adk';
 import { z } from 'zod';
 import { SupabaseService } from '../services/supabase.service';
-import { GroupService } from '../services/group.service';
 import { GroupCreationService } from '../../frontend-creation/group-creation.service';
 import { PaymentIntegrationService } from '../services/payment-integration.service';
 import { VerificationService } from '../services/verification.service';
+import { WhatsAppMessagingService } from '../services/whatsapp-messaging.service';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -22,10 +22,10 @@ export class PasatandaToolsService {
   constructor(
     private readonly config: ConfigService,
     private readonly supabase: SupabaseService,
-    private readonly groupService: GroupService,
     private readonly groupCreation: GroupCreationService,
     private readonly payments: PaymentIntegrationService,
     private readonly verification: VerificationService,
+    private readonly messaging: WhatsAppMessagingService,
   ) {
     this.paymentPage = this.config.get<string>('MAIN_PAGE_URL', '');
     this.phoneNumberId =
@@ -40,7 +40,7 @@ export class PasatandaToolsService {
     return new FunctionTool({
       name: 'create_pasatanda_group',
       description: `Crea un nuevo grupo de tanda en estado DRAFT. 
-        El grupo se crea tanto en WhatsApp como en la base de datos.
+        El grupo se crea en la base de datos y se envían invitaciones por WhatsApp a los participantes.
         El usuario que crea el grupo se convierte en administrador.
         Usa esta herramienta cuando el usuario quiera crear una nueva tanda.`,
       parameters: z.object({
@@ -62,32 +62,13 @@ export class PasatandaToolsService {
           .optional()
           .describe('Si el rendimiento está habilitado'),
       }),
-      execute: async (args) => {
+      execute: async (args, toolContext?: ToolContext) => {
         try {
           const subject =
             args.groupName || `PasaTanda ${new Date().getMonth() + 1}`;
-          const participants = Array.from(
-            new Set([args.senderPhone, ...(args.participants ?? [])]),
-          ).filter(Boolean);
-
-          // Crear grupo en WhatsApp
-          let whatsappGroupId: string | undefined;
-          if (this.phoneNumberId) {
-            try {
-              const groupResult = await this.groupService.createGroup(
-                this.phoneNumberId,
-                {
-                  subject,
-                  participants,
-                },
-              );
-              whatsappGroupId = groupResult.id;
-            } catch (error) {
-              this.logger.warn(
-                `No se pudo crear grupo en WhatsApp: ${(error as Error).message}`,
-              );
-            }
-          }
+          const invitedPhones = Array.from(new Set(args.participants ?? []))
+            .filter(Boolean)
+            .filter((phone) => phone !== args.senderPhone);
 
           // Crear usuario en base de datos
           const user = await this.groupCreation.upsertUser({
@@ -102,7 +83,6 @@ export class PasatandaToolsService {
             amount: args.amountUsd ?? 1,
             frequencyDays: args.frequencyDays ?? 7,
             yieldEnabled: args.yieldEnabled ?? true,
-            whatsappGroupId,
           });
 
           // Crear membresía del admin
@@ -113,12 +93,39 @@ export class PasatandaToolsService {
             turnNumber: 1,
           });
 
+          if (toolContext) {
+            toolContext.state['user:selected_group_id'] = draftGroup.groupDbId;
+            toolContext.state['user:selected_group_name'] = subject;
+            toolContext.state['user:preferred_currency'] = 'USD';
+            toolContext.state['user:phone'] = args.senderPhone;
+          }
+
+          const invitations = await Promise.all(
+            invitedPhones.map(async (invitedPhone) => {
+              const inviteCode = await this.createInvitationCodeWithRetry({
+                groupDbId: draftGroup.groupDbId,
+                inviterPhone: args.senderPhone,
+                invitedPhone,
+              });
+
+              if (this.phoneNumberId) {
+                await this.messaging.sendText(
+                  invitedPhone,
+                  `📩 Te invitaron a unirte a la tanda "${subject}".\n\nPara aceptar responde: ACEPTAR ${inviteCode}\nPara rechazar responde: RECHAZAR ${inviteCode}`,
+                  { phoneNumberId: this.phoneNumberId },
+                );
+              }
+
+              return { invitedPhone, inviteCode };
+            }),
+          );
+
           return {
             status: 'success',
             groupName: subject,
             groupDbId: draftGroup.groupDbId,
-            whatsappGroupId: whatsappGroupId ?? 'pendiente',
-            message: `Grupo "${subject}" creado exitosamente. Estado: DRAFT. Usa "iniciar tanda" cuando todos los participantes estén listos.`,
+            invitations,
+            message: `Grupo "${subject}" creado exitosamente. Estado: DRAFT. Envié ${invitations.length} invitaciones.`,
           };
         } catch (error) {
           this.logger.error(`Error creando grupo: ${(error as Error).message}`);
@@ -138,7 +145,7 @@ export class PasatandaToolsService {
     return new FunctionTool({
       name: 'add_participant_to_group',
       description: `Agrega un nuevo participante a un grupo de tanda existente.
-        Crea el usuario si no existe y lo agrega como miembro del grupo.`,
+        Envía una invitación por WhatsApp para que el usuario acepte y se una a la tanda.`,
       parameters: z.object({
         groupId: z
           .string()
@@ -153,7 +160,7 @@ export class PasatandaToolsService {
           .optional()
           .describe('Nombre del participante'),
       }),
-      execute: async (args) => {
+      execute: async (args, toolContext?: ToolContext) => {
         try {
           // Buscar el grupo
           const groups = await this.supabase.query<{
@@ -174,44 +181,32 @@ export class PasatandaToolsService {
 
           const group = groups[0];
 
-          // Crear/actualizar usuario
-          const user = await this.groupCreation.upsertUser({
-            phone: args.participantPhone,
-            username: args.participantName ?? args.participantPhone,
-            preferredCurrency: 'USD',
+          const inviterPhone =
+            (toolContext?.state?.['user:phone'] as string | undefined) ??
+            'system';
+          const inviteCode = await this.createInvitationCodeWithRetry({
+            groupDbId: group.id,
+            inviterPhone,
+            invitedPhone: args.participantPhone,
           });
 
-          // Verificar si ya es miembro
-          const existingMember = await this.supabase.query(
-            `SELECT id FROM memberships WHERE user_id = $1 AND group_id = $2`,
-            [user.userId, group.id],
-          );
-
-          if (existingMember.length > 0) {
-            return {
-              status: 'already_member',
-              message: `${args.participantPhone} ya es miembro del grupo "${group.name}"`,
-            };
+          if (this.phoneNumberId) {
+            await this.messaging.sendText(
+              args.participantPhone,
+              `📩 Te invitaron a unirte a la tanda "${group.name}".\n\nPara aceptar responde: ACEPTAR ${inviteCode}\nPara rechazar responde: RECHAZAR ${inviteCode}`,
+              { phoneNumberId: this.phoneNumberId },
+            );
           }
 
-          // Obtener el siguiente número de turno
-          const maxTurn = await this.supabase.query<{ max_turn: number }>(
-            `SELECT COALESCE(MAX(turn_number), 0) as max_turn FROM memberships WHERE group_id = $1`,
-            [group.id],
-          );
-
-          // Crear membresía
-          await this.groupCreation.createMembership({
-            userId: user.userId,
-            groupDbId: group.id,
-            isAdmin: false,
-            turnNumber: (maxTurn[0]?.max_turn ?? 0) + 1,
-          });
+          if (toolContext) {
+            toolContext.state['user:selected_group_id'] = group.id;
+            toolContext.state['user:selected_group_name'] = group.name;
+          }
 
           return {
             status: 'success',
-            message: `${args.participantPhone} agregado al grupo "${group.name}"`,
-            turnNumber: (maxTurn[0]?.max_turn ?? 0) + 1,
+            inviteCode,
+            message: `Invitación enviada a ${args.participantPhone} para unirse a "${group.name}".`,
           };
         } catch (error) {
           this.logger.error(
@@ -626,7 +621,7 @@ export class PasatandaToolsService {
           .optional()
           .describe('Nombre visible del contacto, si está disponible'),
       }),
-      execute: async (args) => {
+      execute: async (args, toolContext?: ToolContext) => {
         try {
           const normalizedCode = args.code.trim();
           if (!normalizedCode) {
@@ -642,6 +637,12 @@ export class PasatandaToolsService {
           );
 
           if (verified) {
+            if (toolContext) {
+              toolContext.state['user:phone_verified'] = true;
+              toolContext.state['user:phone_verified_at'] =
+                new Date().toISOString();
+              toolContext.state['user:phone'] = args.senderPhone;
+            }
             return {
               status: 'verified',
               message:
@@ -665,6 +666,147 @@ export class PasatandaToolsService {
   }
 
   // =========================================================================
+  // TOOL: Responder a invitación (aceptar/rechazar)
+  // =========================================================================
+  get respondToInvitationTool(): FunctionTool {
+    return new FunctionTool({
+      name: 'respond_to_invitation',
+      description:
+        'Permite aceptar o rechazar una invitación a una tanda usando el invite_code. Si aceptas, crea el usuario y la membresía en la base de datos.',
+      parameters: z.object({
+        invitedPhone: z.string().describe('Teléfono del usuario invitado'),
+        inviteCode: z.string().describe('Código de invitación recibido'),
+        action: z
+          .enum(['ACCEPT', 'DECLINE'])
+          .describe('Acción a ejecutar sobre la invitación'),
+        invitedName: z
+          .string()
+          .optional()
+          .describe('Nombre del invitado si está disponible'),
+      }),
+      execute: async (args, toolContext?: ToolContext) => {
+        const inviteCode = args.inviteCode.trim();
+        if (!inviteCode) {
+          return { status: 'error', error: 'inviteCode vacío' };
+        }
+
+        const invitations = await this.supabase.query<{
+          id: number;
+          group_id: number;
+          invited_phone: string;
+          status: string;
+          expires_at: string | null;
+        }>(
+          `
+            select id, group_id, invited_phone, status, expires_at
+            from group_invitations
+            where invite_code = $1 and invited_phone = $2
+            limit 1
+          `,
+          [inviteCode, args.invitedPhone],
+        );
+
+        const invitation = invitations[0];
+        if (!invitation) {
+          return {
+            status: 'not_found',
+            message:
+              'No encontré esa invitación. Verifica el código y vuelve a intentarlo.',
+          };
+        }
+
+        if (invitation.status === 'ACCEPTED') {
+          return {
+            status: 'already_accepted',
+            message:
+              'Esta invitación ya fue aceptada. Ya eres miembro de la tanda.',
+          };
+        }
+        if (invitation.status === 'DECLINED') {
+          return {
+            status: 'already_declined',
+            message: 'Esta invitación ya fue rechazada.',
+          };
+        }
+
+        if (invitation.expires_at) {
+          const expiresAt = Date.parse(invitation.expires_at);
+          if (!Number.isNaN(expiresAt) && expiresAt < Date.now()) {
+            await this.supabase.query(
+              `update group_invitations set status = 'EXPIRED', responded_at = timezone('utc', now()) where id = $1`,
+              [invitation.id],
+            );
+            return {
+              status: 'expired',
+              message: 'La invitación expiró. Pide que te envíen una nueva.',
+            };
+          }
+        }
+
+        if (args.action === 'DECLINE') {
+          await this.supabase.query(
+            `update group_invitations set status = 'DECLINED', responded_at = timezone('utc', now()) where id = $1`,
+            [invitation.id],
+          );
+          return {
+            status: 'declined',
+            message:
+              'Invitación rechazada. Si fue un error, pide una nueva invitación.',
+          };
+        }
+
+        // ACCEPT: crear/actualizar usuario y membresía
+        const user = await this.groupCreation.upsertUser({
+          phone: args.invitedPhone,
+          username: args.invitedName ?? args.invitedPhone,
+          preferredCurrency:
+            (toolContext?.state?.['user:preferred_currency'] as string) ??
+            'USD',
+        });
+
+        const maxTurn = await this.supabase.query<{ max_turn: number }>(
+          `select coalesce(max(turn_number), 0) as max_turn from memberships where group_id = $1`,
+          [invitation.group_id],
+        );
+        const turnNumber = (maxTurn[0]?.max_turn ?? 0) + 1;
+
+        const membershipRows = await this.supabase.query<{ id: number }>(
+          `
+            insert into memberships (user_id, group_id, is_admin, turn_number)
+            values ($1, $2, false, $3)
+            on conflict (user_id, group_id) do update set turn_number = excluded.turn_number
+            returning id
+          `,
+          [user.userId, invitation.group_id, turnNumber],
+        );
+        const membershipId = membershipRows[0]?.id ?? null;
+
+        await this.supabase.query(
+          `
+            update group_invitations
+            set status = 'ACCEPTED', responded_at = timezone('utc', now()), invited_user_id = $1, membership_id = $2
+            where id = $3
+          `,
+          [user.userId, membershipId, invitation.id],
+        );
+
+        if (toolContext) {
+          toolContext.state['user:selected_group_id'] = invitation.group_id;
+          toolContext.state['user:phone'] = args.invitedPhone;
+        }
+
+        return {
+          status: 'accepted',
+          message: `✅ Invitación aceptada. Ya formas parte de la tanda. Tu turno asignado es #${turnNumber}.`,
+          groupDbId: invitation.group_id,
+          membershipId,
+          turnNumber,
+        };
+      },
+    });
+  }
+
+  // =========================================================================
   // GETTER: Todas las tools como array
   // =========================================================================
   get allTools(): FunctionTool[] {
@@ -677,6 +819,43 @@ export class PasatandaToolsService {
       this.verifyPaymentProofTool,
       this.getUserInfoTool,
       this.verifyPhoneCodeTool,
+      this.respondToInvitationTool,
     ];
+  }
+
+  private async createInvitationCodeWithRetry(params: {
+    groupDbId: number;
+    inviterPhone: string;
+    invitedPhone: string;
+  }): Promise<string> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const inviteCode = this.generateInviteCode();
+      const rows = await this.supabase.query<{ id: number }>(
+        `
+          insert into group_invitations (group_id, inviter_phone, invited_phone, invite_code, status)
+          values ($1, $2, $3, $4, 'PENDING')
+          on conflict (invite_code) do nothing
+          returning id
+        `,
+        [
+          params.groupDbId,
+          params.inviterPhone,
+          params.invitedPhone,
+          inviteCode,
+        ],
+      );
+
+      if (rows.length) {
+        return inviteCode;
+      }
+    }
+
+    throw new Error(
+      'No se pudo generar un código de invitación único. Intenta nuevamente.',
+    );
+  }
+
+  private generateInviteCode(): string {
+    return randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
   }
 }

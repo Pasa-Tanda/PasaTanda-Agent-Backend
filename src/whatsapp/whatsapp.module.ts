@@ -13,7 +13,6 @@ import { TreasurerAgentService } from './agents/treasurer.agent';
 import { ValidatorAgentService } from './agents/validator.agent';
 import { PaymentIntegrationService } from './services/payment-integration.service';
 import { SorobanClientService } from './services/soroban-client.service';
-import { GroupService } from './services/group.service';
 import { VerificationService } from './services/verification.service';
 import { FrontendWebhookService } from './services/frontend-webhook.service';
 import { OnboardingModule } from '../frontend-creation/onboarding.module';
@@ -65,7 +64,6 @@ import { GeminiService } from './services/gemini.service';
     // Business services
     PaymentIntegrationService,
     SorobanClientService,
-    GroupService,
     VerificationService,
     FrontendWebhookService,
   ],
