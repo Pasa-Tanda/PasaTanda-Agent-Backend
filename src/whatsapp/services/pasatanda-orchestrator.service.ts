@@ -93,7 +93,7 @@ Campos sugeridos en entities: amountUsd, currency, groupId, participants[], payT
               classification.entities.payTo ??
               classification.entities.stellarPublicKey ??
               context.senderId,
-            details: classification.entities.details,
+            description: classification.entities.details,
           },
         });
         return { intent: classification.intent, actions };

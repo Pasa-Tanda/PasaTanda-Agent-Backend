@@ -25,6 +25,7 @@ import type {
 
 export type PasatandaIntent =
   | 'PAY_QUOTA'
+  | 'PAYOUT_WINNER'
   | 'CHECK_STATUS'
   | 'CREATE_GROUP'
   | 'ADD_PARTICIPANT'
@@ -190,11 +191,13 @@ export class AdkOrchestratorService implements OnModuleInit {
   - Sólo puedes llamar \`verify_phone_code\`.
 
   INTENCIONES PRINCIPALES:
-  - **VERIFICAR TELÉFONO**: el usuario envía un OTP (p.ej. ~*123456*~).
+  - **VERIFICAR TELÉFONO**: el usuario envía un OTP (p.ej. ABC123).
     - Extrae el código dentro del agente y pásalo como argumento \`code\` al tool \`verify_phone_code\`. No envíes todo el texto al tool.
-    - Llama \`verify_phone_code\` con \`senderPhone\` y el código extraído.
+    - Llama \`verify_phone_code\` con \`senderPhone\` y el código extraído (el codigo de verificacion telefonica es de 6 alfanumericos)
   - **CREAR/CONFIGURAR/CONSULTAR**: transfiere a \`game_master\`.
+  - **GESTIONAR INVITACIONES A TANDAS** el usuario envia un codigo de 8 caracteres alfanumericos (P.EJ. ABCD1234), en ese caso redirige a \`game_master\`).
   - **PAGAR**: transfiere a \`treasurer\`.
+  - **RETIRO GANADOR**: si recibes un texto como "payout:fiat:<groupId>:<cycleIndex>", "payout:usdc:..." o "payout:later:...", transfiere a \`treasurer\`.
   - **COMPROBANTE**: transfiere a \`validator\` (o \`treasurer\` si ya hay orden y sólo falta confirmar).
   - **AYUDA**: responde tú mismo sin tools, de forma breve.
 
@@ -396,6 +399,23 @@ export class AdkOrchestratorService implements OnModuleInit {
     const lowerMessage = userMessage.toLowerCase();
     const lowerResponse = agentResponse.toLowerCase();
 
+    // Selecciones desde mensajes interactivos
+    if (/^invite_(accept|decline):/.test(lowerMessage)) {
+      return 'CREATE_GROUP';
+    }
+    if (
+      /^tanda:(configure|status|add_participant|start):\d+/.test(lowerMessage)
+    ) {
+      const match = lowerMessage.match(
+        /^tanda:(configure|status|add_participant|start):/,
+      );
+      const kind = match?.[1];
+      if (kind === 'configure') return 'CONFIGURE_TANDA';
+      if (kind === 'status') return 'CHECK_STATUS';
+      if (kind === 'add_participant') return 'ADD_PARTICIPANT';
+      if (kind === 'start') return 'START_TANDA';
+    }
+
     // Patrones de detección
     if (/~\*|otp|c[oó]digo|pin/.test(lowerMessage)) {
       return 'VERIFY_PHONE';
@@ -529,6 +549,83 @@ export class AdkOrchestratorService implements OnModuleInit {
             });
           }
           return actions;
+        }
+
+        // Si hay secciones, crear lista interactiva
+        const rawSections = Array.isArray(data.sections)
+          ? data.sections
+          : Array.isArray(data.listSections)
+            ? data.listSections
+            : undefined;
+
+        if (rawSections) {
+          const sections: WhatsAppInteractiveListSection[] = rawSections
+            .slice(0, 10)
+            .map((section) => {
+              const sectionObj =
+                section && typeof section === 'object'
+                  ? (section as Record<string, unknown>)
+                  : undefined;
+              const title =
+                sectionObj && typeof sectionObj.title === 'string'
+                  ? sectionObj.title
+                  : 'Opciones';
+              const rowsRaw =
+                sectionObj && Array.isArray(sectionObj.rows)
+                  ? sectionObj.rows
+                  : [];
+
+              const rows = rowsRaw.slice(0, 10).map((row, idxRow: number) => {
+                const rowObj =
+                  row && typeof row === 'object'
+                    ? (row as Record<string, unknown>)
+                    : undefined;
+                const id =
+                  rowObj && typeof rowObj.id === 'string'
+                    ? rowObj.id
+                    : `row_${idxRow}`;
+                const rowTitle =
+                  rowObj && typeof rowObj.title === 'string'
+                    ? rowObj.title
+                    : String(row);
+                const description =
+                  rowObj && typeof rowObj.description === 'string'
+                    ? rowObj.description
+                    : undefined;
+
+                return {
+                  id: id.slice(0, 200),
+                  title: rowTitle.slice(0, 24),
+                  ...(description
+                    ? { description: description.slice(0, 72) }
+                    : {}),
+                };
+              });
+
+              return { title: title.slice(0, 24), rows };
+            })
+            .filter((s) => s.rows.length > 0);
+
+          if (sections.length > 0) {
+            actions.push({
+              type: 'interactive_list',
+              text:
+                (typeof data.message === 'string' && data.message) ||
+                (typeof data.text === 'string' && data.text) ||
+                'Selecciona una opción:',
+              buttonText:
+                (typeof data.buttonText === 'string' && data.buttonText) ||
+                (typeof data.button_text === 'string' && data.button_text) ||
+                'Ver opciones',
+              listHeader:
+                (typeof data.header === 'string' && data.header) || undefined,
+              footer:
+                (typeof data.footer === 'string' && data.footer) || undefined,
+              sections,
+              to: defaultRecipient,
+            });
+            return actions;
+          }
         }
 
         // Si hay opciones, crear botones interactivos

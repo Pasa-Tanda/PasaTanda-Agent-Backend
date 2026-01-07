@@ -28,6 +28,7 @@ import { AdkOrchestratorService } from './agents/adk-orchestrator.service';
 import { WhatsAppMessagingService } from './services/whatsapp-messaging.service';
 import { SupabaseService } from './services/supabase.service';
 import { GeminiService } from './services/gemini.service';
+import { PaymentCycleSchedulerService } from './services/payment-cycle-scheduler.service';
 
 @Module({
   imports: [HttpModule, ConfigModule, forwardRef(() => OnboardingModule)],
@@ -66,6 +67,9 @@ import { GeminiService } from './services/gemini.service';
     SorobanClientService,
     VerificationService,
     FrontendWebhookService,
+
+    // Schedulers
+    PaymentCycleSchedulerService,
   ],
   exports: [WhatsappService, WhatsAppMessagingService, AdkOrchestratorService],
 })

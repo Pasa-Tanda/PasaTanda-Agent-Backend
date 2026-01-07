@@ -15,9 +15,9 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Baluchop Management Service Hello World!"', () => {
+    it('should return "PasaTanda Agent Backend listo"', () => {
       expect(appController.getHello()).toBe(
-        'Baluchop Management Service Hello World!',
+        'PasaTanda Agent Backend listo',
       );
     });
   });

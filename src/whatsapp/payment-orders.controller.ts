@@ -105,8 +105,18 @@ export class PaymentOrdersController {
         );
       }
 
+      const rows = await this.supabase.query<{ amount_crypto_usdc: number }>(
+        `SELECT amount_crypto_usdc
+         FROM payment_orders
+         WHERE id = $1
+         LIMIT 1`,
+        [id],
+      );
+      const amountUsd = Number(rows[0]?.amount_crypto_usdc ?? 0);
+
       const { success, txHash } = await this.payments.forwardCrypto({
         orderId: id,
+        amountUsd,
         xPayment: body.xPayment,
       });
 

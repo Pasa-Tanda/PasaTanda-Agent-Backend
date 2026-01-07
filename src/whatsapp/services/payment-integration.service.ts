@@ -39,16 +39,22 @@ export class PaymentIntegrationService {
   async negotiatePayment(params: {
     orderId: string;
     amountUsd: number;
-    payTo: string;
-    details?: string;
+    payTo?: string;
+    description?: string;
     resource?: string;
   }): Promise<PayNegotiationResponse> {
     const url = new URL('/api/pay', this.baseUrl);
     url.searchParams.set('orderId', params.orderId);
     url.searchParams.set('amountUsd', String(params.amountUsd));
-    url.searchParams.set('payTo', params.payTo);
-    if (params.details) {
-      url.searchParams.set('details', params.details);
+
+    // PayBE docs: payTo es opcional.
+    if (params.payTo) {
+      url.searchParams.set('payTo', params.payTo);
+    }
+
+    // PayBE docs: usa "description" (no "details").
+    if (params.description) {
+      url.searchParams.set('description', params.description);
     }
     if (params.resource) {
       url.searchParams.set('resource', params.resource);
@@ -86,20 +92,30 @@ export class PaymentIntegrationService {
 
   async verifyFiat(params: {
     orderId: string;
+    amountUsd: number;
     proofMetadata: Record<string, unknown>;
-    jobId?: string;
   }): Promise<PayVerificationResponse> {
     const url = new URL('/api/pay', this.baseUrl);
     url.searchParams.set('orderId', params.orderId);
-    if (params.jobId) {
-      url.searchParams.set('jobId', params.jobId);
+    url.searchParams.set('amountUsd', String(params.amountUsd));
+
+    const payload = this.buildStrictFiatPayload(params.orderId, params.proofMetadata);
+    if (!payload) {
+      return {
+        success: false,
+        statusCode: 400,
+        reason:
+          'proofMetadata inválido. Se requieren: glosa, time (ISO) y transactionId.',
+        raw: null,
+      };
     }
 
     const xPaymentPayload = Buffer.from(
       JSON.stringify({
         x402Version: 1,
         type: 'fiat',
-        payload: params.proofMetadata,
+        currency: payload.currency,
+        payload: payload.payload,
       }),
       'utf8',
     ).toString('base64');
@@ -132,10 +148,12 @@ export class PaymentIntegrationService {
 
   async forwardCrypto(params: {
     orderId: string;
+    amountUsd: number;
     xPayment: string;
   }): Promise<PayVerificationResponse> {
     const url = new URL('/api/pay', this.baseUrl);
     url.searchParams.set('orderId', params.orderId);
+    url.searchParams.set('amountUsd', String(params.amountUsd));
 
     try {
       const response = await firstValueFrom(
@@ -168,5 +186,54 @@ export class PaymentIntegrationService {
       headers['x-internal-api-key'] = this.apiKey;
     }
     return headers;
+  }
+
+  private buildStrictFiatPayload(
+    orderId: string,
+    proofMetadata: Record<string, unknown>,
+  ):
+    | { currency: string; payload: { glosa: string; time: string; transactionId: string } }
+    | null {
+    const currency =
+      typeof (proofMetadata as any)?.currency === 'string'
+        ? String((proofMetadata as any).currency)
+        : 'BOB';
+
+    const glosaRaw =
+      typeof (proofMetadata as any)?.glosa === 'string'
+        ? (proofMetadata as any).glosa
+        : typeof (proofMetadata as any)?.details === 'string'
+          ? (proofMetadata as any).details
+          : typeof (proofMetadata as any)?.description === 'string'
+            ? (proofMetadata as any).description
+            : orderId;
+
+    const timeRaw =
+      typeof (proofMetadata as any)?.time === 'string'
+        ? (proofMetadata as any).time
+        : typeof (proofMetadata as any)?.date === 'string'
+          ? (proofMetadata as any).date
+          : new Date().toISOString();
+
+    const transactionIdRaw =
+      typeof (proofMetadata as any)?.transactionId === 'string'
+        ? (proofMetadata as any).transactionId
+        : typeof (proofMetadata as any)?.reference === 'string'
+          ? (proofMetadata as any).reference
+          : typeof (proofMetadata as any)?.transaction === 'string'
+            ? (proofMetadata as any).transaction
+            : undefined;
+
+    if (!transactionIdRaw) {
+      return null;
+    }
+
+    const payload = {
+      glosa: String(glosaRaw),
+      time: String(timeRaw),
+      transactionId: String(transactionIdRaw),
+    };
+
+    return { currency, payload };
   }
 }

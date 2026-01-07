@@ -168,8 +168,12 @@ export class WhatsappService {
       }
     }
 
-    // Marcar el mensaje como leído
-    await this.markAsRead(message.id, phoneNumberId);
+    // Marcar el mensaje como leído. Para texto/interactivos también mostramos indicador de escritura.
+    await this.markAsRead(
+      message.id,
+      phoneNumberId,
+      message.type === 'text' || message.type === 'interactive',
+    );
 
     switch (message.type) {
       case 'text':
@@ -295,10 +299,7 @@ export class WhatsappService {
         originalText: message.text?.body ?? '',
         message,
         phoneNumberId,
-        groupId:
-          message.group?.id ??
-          (message as any)?.group_id ??
-          (message.context as any)?.group_id,
+        groupId: message.group?.id,
       });
 
       this.logger.debug(
@@ -476,7 +477,7 @@ export class WhatsappService {
 
         default:
           this.logger.warn(
-            `Tipo de acción ADK no soportado: ${(action as any).type}`,
+            `Tipo de acción ADK no soportado: ${(action as { type?: string }).type ?? 'unknown'}`,
           );
       }
     } catch (error) {
@@ -547,20 +548,34 @@ export class WhatsappService {
         `Botón seleccionado - ID: ${message.interactive.button_reply.id}, Título: ${message.interactive.button_reply.title}`,
       );
 
-      await this.sendTextMessage(
+      const selectionText =
+        message.interactive.button_reply.id ||
+        message.interactive.button_reply.title;
+      await this.handleWithAdkOrchestrator(
         message.from,
-        `Seleccionaste ${message.interactive.button_reply.title}. Escríbeme en texto qué operación deseas (cita, pagar, reporte o token).`,
-        { phoneNumberId },
+        {
+          ...(message as any),
+          type: 'text',
+          text: { body: selectionText },
+        } as WhatsAppIncomingMessage,
+        phoneNumberId,
       );
     } else if (message.interactive.list_reply) {
       this.logger.log(
         `Opción de lista seleccionada - ID: ${message.interactive.list_reply.id}, Título: ${message.interactive.list_reply.title}`,
       );
 
-      await this.sendTextMessage(
+      const selectionText =
+        message.interactive.list_reply.id ||
+        message.interactive.list_reply.title;
+      await this.handleWithAdkOrchestrator(
         message.from,
-        `Seleccionaste ${message.interactive.list_reply.title}. Continúa en texto para completar la solicitud.`,
-        { phoneNumberId },
+        {
+          ...(message as any),
+          type: 'text',
+          text: { body: selectionText },
+        } as WhatsAppIncomingMessage,
+        phoneNumberId,
       );
     }
   }
@@ -711,7 +726,7 @@ export class WhatsappService {
     caption?: string,
     options?: MessageContextOptions,
   ): Promise<any> {
-    const { phoneNumberId } = await this.resolvePhoneNumberId(options);
+    const { phoneNumberId } = this.resolvePhoneNumberId(options);
     const buffer = Buffer.from(base64, 'base64');
     const mediaId = await this.uploadMedia(
       buffer,
@@ -822,7 +837,7 @@ export class WhatsappService {
     },
     options?: MessageContextOptions,
   ): Promise<any> {
-    const { phoneNumberId } = await this.resolvePhoneNumberId(options);
+    const { phoneNumberId } = this.resolvePhoneNumberId(options);
 
     // Construir el header (imagen opcional)
     let header: Record<string, unknown> | undefined;
@@ -968,10 +983,10 @@ export class WhatsappService {
   private async sendMessage(
     messageData: SendMessageDto,
     options?: MessageContextOptions,
-  ): Promise<any> {
+  ): Promise<unknown> {
     try {
-      const { phoneNumberId } = await this.resolvePhoneNumberId(options);
-      const payload = {
+      const { phoneNumberId } = this.resolvePhoneNumberId(options);
+      const payload: Record<string, unknown> = {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         ...messageData,
@@ -991,7 +1006,7 @@ export class WhatsappService {
       );
 
       this.logger.log(`Mensaje enviado correctamente a ${messageData.to}`);
-      return response.data;
+      return (response as { data: unknown }).data;
     } catch (error) {
       const safeError = error as Error & { response?: { data?: unknown } };
       const details = safeError.response?.data ?? safeError.message;
@@ -1045,9 +1060,9 @@ export class WhatsappService {
     return `https://graph.facebook.com/${this.apiVersion}/${phoneNumberId}/media`;
   }
 
-  private async resolvePhoneNumberId(
-    options?: MessageContextOptions,
-  ): Promise<{ phoneNumberId: string }> {
+  private resolvePhoneNumberId(options?: MessageContextOptions): {
+    phoneNumberId: string;
+  } {
     if (options?.phoneNumberId) {
       return { phoneNumberId: options.phoneNumberId };
     }
@@ -1067,16 +1082,23 @@ export class WhatsappService {
   private async markAsRead(
     messageId: string,
     phoneNumberId: string,
+    showTypingIndicator: boolean = false,
   ): Promise<void> {
     try {
+      const payload: Record<string, unknown> = {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+      };
+
+      if (showTypingIndicator) {
+        payload.typing_indicator = { type: 'text' };
+      }
+
       await firstValueFrom(
         this.httpService.post(
           this.getMessagesEndpoint(phoneNumberId),
-          {
-            messaging_product: 'whatsapp',
-            status: 'read',
-            message_id: messageId,
-          },
+          payload,
           {
             headers: {
               'Content-Type': 'application/json',

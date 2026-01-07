@@ -8,7 +8,7 @@ import type { RouterAction } from '../whatsapp.types';
 export interface PaymentIntentPayload {
   amountUsd: number;
   payTo: string;
-  details?: string;
+  description?: string;
 }
 
 @Injectable()
@@ -40,7 +40,7 @@ export class TreasurerAgentService {
       orderId,
       amountUsd: params.payload.amountUsd,
       payTo: params.payload.payTo,
-      details: params.payload.details,
+      description: params.payload.description,
     });
 
     await this.supabase.query(
@@ -78,8 +78,18 @@ export class TreasurerAgentService {
     orderId: string;
     proofMetadata: Record<string, unknown>;
   }): Promise<RouterAction[]> {
+    const rows = await this.supabase.query<{ amount_crypto_usdc: number }>(
+      `SELECT amount_crypto_usdc
+       FROM payment_orders
+       WHERE id = $1
+       LIMIT 1` as string,
+      [params.orderId],
+    );
+    const amountUsd = Number(rows[0]?.amount_crypto_usdc ?? 0);
+
     const verification = await this.payments.verifyFiat({
       orderId: params.orderId,
+      amountUsd,
       proofMetadata: params.proofMetadata,
     });
 

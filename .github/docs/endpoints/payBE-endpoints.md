@@ -3,7 +3,6 @@
 Documentación exhaustiva y ejemplos completos de cada endpoint del backend de pagos. Incluye solicitudes, respuestas, headers, y flujos de éxito y error.
 
 ## Convenciones generales
-
 - Base local: `http://localhost:3000`
 - Códigos frecuentes: `200`, `201`, `202`, `400`, `401`, `402`, `404`, `409`, `500`
 - Headers comunes: `Content-Type: application/json`, `X-PAYMENT`, `X-PAYMENT-RESPONSE`, `x-internal-api-key`
@@ -11,7 +10,6 @@ Documentación exhaustiva y ejemplos completos de cada endpoint del backend de p
 - Swagger UI: `/docs` (ver configuración en [src/app.config.ts](src/app.config.ts))
 
 ## Índice rápido
-
 - [Root](#root)
 - [X402 Payments](#x402-payments-api)
 - [Fiat Automation](#fiat-automation-v1fiat)
@@ -21,9 +19,7 @@ Documentación exhaustiva y ejemplos completos de cada endpoint del backend de p
 ---
 
 ## Root
-
 **GET /**
-
 - Propósito: health básico Nest; responde `Hello World!`.
 - Ejemplo:
   ```http
@@ -35,11 +31,9 @@ Documentación exhaustiva y ejemplos completos de cada endpoint del backend de p
 ---
 
 ## X402 Payments (`/api`)
-
 Unifica pagos crypto (Stellar XDR) y fiat (QR bancario) en un solo endpoint.
 
 ### GET /api/pay — descubrimiento (sin `X-PAYMENT`)
-
 - Query obligatoria: `orderId` (string), `amountUsd` (number)
 - Query opcional: `description`, `resource`, `fiatAmount`, `currency`, `symbol`, `requiresManualConfirmation`, `payTo`
 - Ejemplo solicitud (descubrimiento):
@@ -79,7 +73,6 @@ Unifica pagos crypto (Stellar XDR) y fiat (QR bancario) en un solo endpoint.
   ```
 
 ### GET /api/pay — pago crypto (con `X-PAYMENT`)
-
 - Headers: `X-PAYMENT` = base64(JSON con XDR firmado)
 - Ejemplo payload (antes de base64):
   ```json
@@ -119,7 +112,6 @@ Unifica pagos crypto (Stellar XDR) y fiat (QR bancario) en un solo endpoint.
 - Header de salida: `X-PAYMENT-RESPONSE` base64 del mismo JSON.
 
 ### GET /api/pay — pago fiat (con `X-PAYMENT`)
-
 - Headers: `X-PAYMENT` = base64(JSON fiat)
 - Payload fiat (antes de base64):
   ```json
@@ -147,7 +139,6 @@ Unifica pagos crypto (Stellar XDR) y fiat (QR bancario) en un solo endpoint.
 - Respuesta `402` (no verificado): incluye nuevas opciones y `error` indicando que no se pudo verificar el pago.
 
 ### GET /api/health
-
 - Propósito: estado del facilitador X402.
 - Respuesta `200`:
   ```json
@@ -162,11 +153,9 @@ Unifica pagos crypto (Stellar XDR) y fiat (QR bancario) en un solo endpoint.
 ---
 
 ## Fiat Automation (`/v1/fiat`)
-
 Automatiza generación y verificación de QR bancario.
 
 ### POST /v1/fiat/generate-qr
-
 - Body:
   ```json
   {
@@ -180,7 +169,6 @@ Automatiza generación y verificación de QR bancario.
   - `409 Conflict`: QR ya existe para la orden o glosa.
 
 ### POST /v1/fiat/verify-payment
-
 - Body:
   ```json
   {
@@ -191,7 +179,6 @@ Automatiza generación y verificación de QR bancario.
 - Respuesta `202 Accepted`: `{ "status": "accepted" }`
 
 ### POST /v1/fiat/set-2fa
-
 - Headers: `x-internal-api-key: <clave>`
 - Body:
   ```json
@@ -204,18 +191,15 @@ Automatiza generación y verificación de QR bancario.
 ---
 
 ## Soroban Smart Contracts (`/api/soroban`)
-
 Operaciones on-chain sobre PasanakuFactory y PasanakuGroup en Stellar/Soroban.
 
 ### GET /api/soroban/health
-
 - Respuesta `200`:
   ```json
   { "status": "ok", "isReady": true, "adminAddress": "G..." }
   ```
 
 ### POST /api/soroban/groups
-
 - Body (creación de grupo):
   ```json
   {
@@ -232,7 +216,6 @@ Operaciones on-chain sobre PasanakuFactory y PasanakuGroup en Stellar/Soroban.
   ```
 
 ### POST /api/soroban/groups/:groupAddress/deposit
-
 - Body:
   ```json
   {
@@ -246,7 +229,6 @@ Operaciones on-chain sobre PasanakuFactory y PasanakuGroup en Stellar/Soroban.
   ```
 
 ### POST /api/soroban/groups/:groupAddress/payout
-
 - Body:
   ```json
   { "winner": "GAAA..." }
@@ -257,7 +239,6 @@ Operaciones on-chain sobre PasanakuFactory y PasanakuGroup en Stellar/Soroban.
   ```
 
 ### POST /api/soroban/groups/:groupAddress/sweep-yield
-
 - Body:
   ```json
   { "treasuryAddress": "GTREASURY..." }
@@ -268,49 +249,35 @@ Operaciones on-chain sobre PasanakuFactory y PasanakuGroup en Stellar/Soroban.
   ```
 
 ### GET /api/soroban/groups/:groupAddress/config
-
 - Respuesta `200` (ejemplo abreviado):
   ```json
   {
-    "token": "CBIELT...",
-    "amount_per_round": "10000000",
-    "frequency_days": 7,
-    "yield_enabled": true,
-    "yield_share_bps": 7000,
-    "admin": "G..."
+    "token": "CBIELT...", "amount_per_round": "10000000", "frequency_days": 7,
+    "yield_enabled": true, "yield_share_bps": 7000, "admin": "G..."
   }
   ```
 
 ### GET /api/soroban/groups/:groupAddress/members
-
 - Respuesta `200`:
   ```json
   [
-    {
-      "address": "GAAA...",
-      "hasPaid": true,
-      "lastPayment": "2024-06-01T12:00:00Z"
-    },
+    { "address": "GAAA...", "hasPaid": true, "lastPayment": "2024-06-01T12:00:00Z" },
     { "address": "GBBB...", "hasPaid": false, "lastPayment": null }
   ]
   ```
 
 ### GET /api/soroban/groups/:groupAddress/round
-
 - Respuesta `200`: `{ "currentRound": 3 }`
 
 ### GET /api/soroban/groups/:groupAddress/estimated-yield
-
 - Respuesta `200`: `{ "estimatedYield": "250000" }`
 
 ---
 
 ## Integrated Payments (`/api/integrated`)
-
 Orquesta la liquidación X402 con los contratos Soroban.
 
 ### POST /api/integrated/payments/:jobId/register
-
 - Body:
   ```json
   {
@@ -325,7 +292,6 @@ Orquesta la liquidación X402 con los contratos Soroban.
 - Errores comunes: job no existe, job no está `settled`, error Soroban (simulación fallida o fondos insuficientes).
 
 ### POST /api/integrated/groups/:groupAddress/payout
-
 - Body:
   ```json
   { "winnerAddress": "GAAA..." }
@@ -334,7 +300,6 @@ Orquesta la liquidación X402 con los contratos Soroban.
   - Internamente luego intenta `sweep-yield` automático.
 
 ### POST /api/integrated/groups/:groupAddress/sweep-yield
-
 - Body:
   ```json
   { "treasuryAddress": "GTREASURY..." }
@@ -342,7 +307,6 @@ Orquesta la liquidación X402 con los contratos Soroban.
 - Respuesta `200`: `{ "success": true, "txHash": "12ab..." }`
 
 ### GET /api/integrated/groups/:groupAddress/status
-
 - Respuesta `200`:
   ```json
   {
@@ -356,15 +320,13 @@ Orquesta la liquidación X402 con los contratos Soroban.
 ---
 
 ## Flujo recomendado
-
-1. `GET /api/pay` sin `X-PAYMENT` → recibe `402` con opciones crypto/fiat.
-2. Cliente firma y reenvía `GET /api/pay` con header `X-PAYMENT` (crypto XDR o payload fiat) → `200` + header `X-PAYMENT-RESPONSE`.
-3. Registrar en contrato: `POST /api/integrated/payments/:jobId/register`.
-4. Cerrar ronda: `POST /api/integrated/groups/:groupAddress/payout` (y auto `sweep-yield`).
-5. Opcional: `GET /api/integrated/groups/:groupAddress/status` para panel.
+1) `GET /api/pay` sin `X-PAYMENT` → recibe `402` con opciones crypto/fiat.
+2) Cliente firma y reenvía `GET /api/pay` con header `X-PAYMENT` (crypto XDR o payload fiat) → `200` + header `X-PAYMENT-RESPONSE`.
+3) Registrar en contrato: `POST /api/integrated/payments/:jobId/register`.
+4) Cerrar ronda: `POST /api/integrated/groups/:groupAddress/payout` (y auto `sweep-yield`).
+5) Opcional: `GET /api/integrated/groups/:groupAddress/status` para panel.
 
 ## Errores habituales
-
 - `402 Payment Required`: falta `X-PAYMENT` o verificación/settlement falló.
 - `401 Unauthorized`: `x-internal-api-key` inválida en `/v1/fiat/set-2fa`.
 - `409 Conflict`: QR ya generado o en proceso.

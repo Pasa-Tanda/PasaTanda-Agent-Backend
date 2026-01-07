@@ -6,7 +6,12 @@ import { SupabaseService } from '../services/supabase.service';
 import { GroupCreationService } from '../../frontend-creation/group-creation.service';
 import { PaymentIntegrationService } from '../services/payment-integration.service';
 import { VerificationService } from '../services/verification.service';
-import { WhatsAppMessagingService } from '../services/whatsapp-messaging.service';
+import { SorobanClientService } from '../services/soroban-client.service';
+import {
+  WhatsAppMessagingService,
+  type WhatsAppInteractiveButton,
+  type WhatsAppInteractiveListSection,
+} from '../services/whatsapp-messaging.service';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -18,6 +23,10 @@ export class PasatandaToolsService {
   private readonly logger = new Logger(PasatandaToolsService.name);
   private readonly paymentPage: string;
   private readonly phoneNumberId: string;
+  private readonly groupCreatedStickerUrl: string;
+  private readonly welcomeStickerUrl: string;
+  private readonly verificationStickerUrl: string;
+  private readonly invitationImageUrl: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -25,12 +34,29 @@ export class PasatandaToolsService {
     private readonly groupCreation: GroupCreationService,
     private readonly payments: PaymentIntegrationService,
     private readonly verification: VerificationService,
+    private readonly soroban: SorobanClientService,
     private readonly messaging: WhatsAppMessagingService,
   ) {
     this.paymentPage = this.config.get<string>('MAIN_PAGE_URL', '');
     this.phoneNumberId =
       this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID', '') ||
       this.config.get<string>('PHONE_NUMBER_ID', '');
+    this.groupCreatedStickerUrl = this.config.get<string>(
+      'WHATSAPP_STICKER_GROUP_CREATED',
+      '',
+    );
+    this.welcomeStickerUrl = this.config.get<string>(
+      'WHATSAPP_STICKER_WELCOME',
+      '',
+    );
+    this.verificationStickerUrl = this.config.get<string>(
+      'WHATSAPP_STICKER_VERIFICATION',
+      '',
+    );
+    this.invitationImageUrl = this.config.get<string>(
+      'WHATSAPP_IMAGE_INVITATION',
+      '',
+    );
   }
 
   // =========================================================================
@@ -64,16 +90,23 @@ export class PasatandaToolsService {
       }),
       execute: async (args, toolContext?: ToolContext) => {
         try {
+          const senderPhone = this.normalizePhone(args.senderPhone);
           const subject =
             args.groupName || `PasaTanda ${new Date().getMonth() + 1}`;
-          const invitedPhones = Array.from(new Set(args.participants ?? []))
+          const invitedPhones = Array.from(
+            new Set(
+              (args.participants ?? [])
+                .map((p) => this.normalizePhone(p))
+                .filter(Boolean),
+            ),
+          )
             .filter(Boolean)
-            .filter((phone) => phone !== args.senderPhone);
+            .filter((phone) => phone !== senderPhone);
 
           // Crear usuario en base de datos
           const user = await this.groupCreation.upsertUser({
-            phone: args.senderPhone,
-            username: args.senderPhone,
+            phone: senderPhone,
+            username: senderPhone,
             preferredCurrency: 'USD',
           });
 
@@ -97,28 +130,36 @@ export class PasatandaToolsService {
             toolContext.state['user:selected_group_id'] = draftGroup.groupDbId;
             toolContext.state['user:selected_group_name'] = subject;
             toolContext.state['user:preferred_currency'] = 'USD';
-            toolContext.state['user:phone'] = args.senderPhone;
+            toolContext.state['user:phone'] = senderPhone;
           }
 
           const invitations = await Promise.all(
             invitedPhones.map(async (invitedPhone) => {
               const inviteCode = await this.createInvitationCodeWithRetry({
                 groupDbId: draftGroup.groupDbId,
-                inviterPhone: args.senderPhone,
+                inviterPhone: senderPhone,
                 invitedPhone,
               });
 
               if (this.phoneNumberId) {
-                await this.messaging.sendText(
-                  invitedPhone,
-                  `📩 Te invitaron a unirte a la tanda "${subject}".\n\nPara aceptar responde: ACEPTAR ${inviteCode}\nPara rechazar responde: RECHAZAR ${inviteCode}`,
-                  { phoneNumberId: this.phoneNumberId },
-                );
+                await this.sendInvitationMessage({
+                  to: invitedPhone,
+                  groupName: subject,
+                  inviteCode,
+                });
               }
 
               return { invitedPhone, inviteCode };
             }),
           );
+
+          if (this.groupCreatedStickerUrl) {
+            await this.messaging.sendSticker(
+              senderPhone,
+              { link: this.groupCreatedStickerUrl },
+              { phoneNumberId: this.phoneNumberId },
+            );
+          }
 
           return {
             status: 'success',
@@ -139,6 +180,79 @@ export class PasatandaToolsService {
   }
 
   // =========================================================================
+  // TOOL: Seleccionar tanda (admin) vía lista interactiva
+  // =========================================================================
+  get selectAdminGroupTool(): FunctionTool {
+    return new FunctionTool({
+      name: 'select_admin_group',
+      description: `Envía una lista interactiva con las tandas donde el usuario es administrador.
+        Úsala cuando falte groupId o cuando necesites que el usuario seleccione una tanda.`,
+      parameters: z.object({
+        senderPhone: z
+          .string()
+          .optional()
+          .describe('Teléfono del usuario que debe seleccionar la tanda'),
+        purpose: z
+          .enum([
+            'CONFIGURE_TANDA',
+            'CHECK_STATUS',
+            'ADD_PARTICIPANT',
+            'START_TANDA',
+          ])
+          .optional()
+          .describe(
+            'Propósito de la selección. Si se omite, se infiere desde user:pending_action si existe.',
+          ),
+      }),
+      execute: async (args, toolContext?: ToolContext) => {
+        const senderPhoneRaw =
+          args.senderPhone ??
+          (toolContext?.state?.['user:phone'] as string | undefined);
+        const senderPhone = senderPhoneRaw
+          ? this.normalizePhone(senderPhoneRaw)
+          : undefined;
+        if (!senderPhone) {
+          return {
+            status: 'error',
+            error:
+              'Falta senderPhone para mostrar la lista de tandas administradas.',
+          };
+        }
+
+        const pendingAction = toolContext?.state?.['user:pending_action'] as
+          | string
+          | undefined;
+
+        const inferredPurpose:
+          | 'CONFIGURE_TANDA'
+          | 'CHECK_STATUS'
+          | 'ADD_PARTICIPANT'
+          | 'START_TANDA'
+          | undefined =
+          args.purpose ??
+          (pendingAction === 'configure_tanda'
+            ? 'CONFIGURE_TANDA'
+            : pendingAction === 'add_participant'
+              ? 'ADD_PARTICIPANT'
+              : pendingAction === 'start_tanda'
+                ? 'START_TANDA'
+                : pendingAction
+                  ? 'CHECK_STATUS'
+                  : undefined);
+
+        const purpose = inferredPurpose ?? 'CHECK_STATUS';
+        await this.sendAdminGroupSelectionList({ to: senderPhone, purpose });
+
+        return {
+          status: 'sent',
+          message: 'Te envié una lista con tus tandas (admin).',
+          purpose,
+        };
+      },
+    });
+  }
+
+  // =========================================================================
   // TOOL: Agregar participante a grupo
   // =========================================================================
   get addParticipantTool(): FunctionTool {
@@ -147,13 +261,21 @@ export class PasatandaToolsService {
       description: `Agrega un nuevo participante a un grupo de tanda existente.
         Envía una invitación por WhatsApp para que el usuario acepte y se una a la tanda.`,
       parameters: z.object({
+        senderPhone: z
+          .string()
+          .optional()
+          .describe(
+            'Teléfono del usuario que solicita agregar al participante',
+          ),
         groupId: z
           .string()
+          .optional()
           .describe(
-            'ID del grupo (puede ser el ID de base de datos o WhatsApp)',
+            'ID del grupo (puede ser el ID de base de datos o WhatsApp). Si no se especifica, se enviará una lista de tandas administradas para seleccionar.',
           ),
         participantPhone: z
           .string()
+          .optional()
           .describe('Número de teléfono del nuevo participante'),
         participantName: z
           .string()
@@ -162,6 +284,55 @@ export class PasatandaToolsService {
       }),
       execute: async (args, toolContext?: ToolContext) => {
         try {
+          const senderPhoneRaw =
+            args.senderPhone ??
+            (toolContext?.state?.['user:phone'] as string | undefined);
+          const senderPhone = senderPhoneRaw
+            ? this.normalizePhone(senderPhoneRaw)
+            : undefined;
+          if (!senderPhone) {
+            return {
+              status: 'error',
+              error:
+                'Falta senderPhone para determinar tus tandas administradas.',
+            };
+          }
+
+          const participantPhoneRaw =
+            args.participantPhone ??
+            (toolContext?.state?.['user:pending_participant_phone'] as
+              | string
+              | undefined);
+          const participantPhone = participantPhoneRaw
+            ? this.normalizePhone(participantPhoneRaw)
+            : undefined;
+
+          if (!args.groupId) {
+            if (toolContext && participantPhone) {
+              toolContext.state['user:pending_participant_phone'] =
+                participantPhone;
+              if (args.participantName) {
+                toolContext.state['user:pending_participant_name'] =
+                  args.participantName;
+              }
+              toolContext.state['user:pending_action'] = 'add_participant';
+            }
+            return {
+              status: 'needs_group_selection',
+              message:
+                'Necesito que selecciones una tanda. Llama select_admin_group para mostrar la lista.',
+            };
+          }
+
+          if (!participantPhone) {
+            return {
+              status: 'error',
+              error: 'Falta participantPhone para enviar la invitación.',
+            };
+          }
+
+          const resolvedGroupId = this.parseGroupId(args.groupId);
+
           // Buscar el grupo
           const groups = await this.supabase.query<{
             id: number;
@@ -172,7 +343,7 @@ export class PasatandaToolsService {
              FROM groups 
              WHERE group_whatsapp_id = $1 OR id::text = $1
              LIMIT 1`,
-            [args.groupId],
+            [resolvedGroupId],
           );
 
           if (!groups.length) {
@@ -186,16 +357,16 @@ export class PasatandaToolsService {
             'system';
           const inviteCode = await this.createInvitationCodeWithRetry({
             groupDbId: group.id,
-            inviterPhone,
-            invitedPhone: args.participantPhone,
+            inviterPhone: this.normalizePhone(inviterPhone),
+            invitedPhone: participantPhone,
           });
 
           if (this.phoneNumberId) {
-            await this.messaging.sendText(
-              args.participantPhone,
-              `📩 Te invitaron a unirte a la tanda "${group.name}".\n\nPara aceptar responde: ACEPTAR ${inviteCode}\nPara rechazar responde: RECHAZAR ${inviteCode}`,
-              { phoneNumberId: this.phoneNumberId },
-            );
+            await this.sendInvitationMessage({
+              to: participantPhone,
+              groupName: group.name,
+              inviteCode,
+            });
           }
 
           if (toolContext) {
@@ -206,7 +377,7 @@ export class PasatandaToolsService {
           return {
             status: 'success',
             inviteCode,
-            message: `Invitación enviada a ${args.participantPhone} para unirse a "${group.name}".`,
+            message: `Invitación enviada a ${participantPhone} para unirse a "${group.name}".`,
           };
         } catch (error) {
           this.logger.error(
@@ -227,7 +398,16 @@ export class PasatandaToolsService {
       description: `Configura los valores de una tanda existente.
         Permite cambiar el monto, frecuencia y opciones de rendimiento.`,
       parameters: z.object({
-        groupId: z.string().describe('ID del grupo'),
+        senderPhone: z
+          .string()
+          .optional()
+          .describe('Teléfono del usuario que solicita la configuración'),
+        groupId: z
+          .string()
+          .optional()
+          .describe(
+            'ID del grupo. Si no se especifica, se enviará una lista de tandas administradas para seleccionar.',
+          ),
         amountUsd: z
           .number()
           .optional()
@@ -245,23 +425,84 @@ export class PasatandaToolsService {
           .optional()
           .describe('Habilitar/deshabilitar rendimiento'),
       }),
-      execute: async (args) => {
+      execute: async (args, toolContext?: ToolContext) => {
         try {
+          const senderPhoneRaw =
+            args.senderPhone ??
+            (toolContext?.state?.['user:phone'] as string | undefined);
+          const senderPhone = senderPhoneRaw
+            ? this.normalizePhone(senderPhoneRaw)
+            : undefined;
+          if (!senderPhone) {
+            return {
+              status: 'error',
+              error:
+                'Falta senderPhone para determinar tus tandas administradas.',
+            };
+          }
+
+          if (!args.groupId) {
+            if (toolContext) {
+              toolContext.state['user:pending_configure'] = {
+                amountUsd: args.amountUsd,
+                frequencyDays: args.frequencyDays,
+                yieldEnabled: args.yieldEnabled,
+              };
+              toolContext.state['user:pending_action'] = 'configure_tanda';
+            }
+            return {
+              status: 'needs_group_selection',
+              message:
+                'Necesito que selecciones una tanda. Llama select_admin_group para mostrar la lista.',
+            };
+          }
+
+          const resolvedGroupId = this.parseGroupId(args.groupId);
+
+          const groups = await this.supabase.query<{
+            id: number;
+            name: string;
+          }>(
+            `SELECT id, name
+             FROM groups
+             WHERE group_whatsapp_id = $1 OR id::text = $1
+             LIMIT 1`,
+            [resolvedGroupId],
+          );
+
+          if (!groups.length) {
+            return { status: 'error', error: 'Grupo no encontrado' };
+          }
+
+          const group = groups[0];
+
+          const pending = toolContext?.state?.['user:pending_configure'] as
+            | {
+                amountUsd?: number;
+                frequencyDays?: number;
+                yieldEnabled?: boolean;
+              }
+            | undefined;
+
+          const amountUsd = args.amountUsd ?? pending?.amountUsd;
+          const frequencyDays = args.frequencyDays ?? pending?.frequencyDays;
+          const yieldEnabled = args.yieldEnabled ?? pending?.yieldEnabled;
+
           const updates: string[] = [];
           const values: unknown[] = [];
           let paramIndex = 1;
 
-          if (args.amountUsd !== undefined) {
-            updates.push(`amount = $${paramIndex++}`);
-            values.push(args.amountUsd);
+          if (amountUsd !== undefined) {
+            updates.push(`total_cycle_amount_usdc = $${paramIndex++}`);
+            values.push(amountUsd);
           }
-          if (args.frequencyDays !== undefined) {
+          if (frequencyDays !== undefined) {
             updates.push(`frequency_days = $${paramIndex++}`);
-            values.push(args.frequencyDays);
+            values.push(frequencyDays);
           }
-          if (args.yieldEnabled !== undefined) {
+          if (yieldEnabled !== undefined) {
             updates.push(`yield_enabled = $${paramIndex++}`);
-            values.push(args.yieldEnabled);
+            values.push(yieldEnabled);
           }
 
           if (updates.length === 0) {
@@ -271,7 +512,7 @@ export class PasatandaToolsService {
             };
           }
 
-          values.push(args.groupId);
+          values.push(resolvedGroupId);
 
           await this.supabase.query(
             `UPDATE groups SET ${updates.join(', ')} 
@@ -279,13 +520,20 @@ export class PasatandaToolsService {
             values,
           );
 
+          if (toolContext) {
+            toolContext.state['user:selected_group_id'] = group.id;
+            toolContext.state['user:selected_group_name'] = group.name;
+            toolContext.state['user:pending_configure'] = undefined;
+            toolContext.state['user:pending_action'] = undefined;
+          }
+
           return {
             status: 'success',
             message: 'Configuración de la tanda actualizada',
             changes: {
-              amountUsd: args.amountUsd,
-              frequencyDays: args.frequencyDays,
-              yieldEnabled: args.yieldEnabled,
+              amountUsd,
+              frequencyDays,
+              yieldEnabled,
             },
           };
         } catch (error) {
@@ -307,10 +555,43 @@ export class PasatandaToolsService {
       description: `Consulta el estado actual de un grupo de tanda.
         Devuelve información sobre el grupo, miembros, pagos pendientes y próximo turno.`,
       parameters: z.object({
-        groupId: z.string().describe('ID del grupo'),
+        senderPhone: z
+          .string()
+          .optional()
+          .describe('Teléfono del usuario que solicita el estado'),
+        groupId: z
+          .string()
+          .optional()
+          .describe(
+            'ID del grupo. Si no se especifica, se enviará una lista de tandas administradas para seleccionar.',
+          ),
       }),
-      execute: async (args) => {
+      execute: async (args, toolContext?: ToolContext) => {
         try {
+          const senderPhoneRaw =
+            args.senderPhone ??
+            (toolContext?.state?.['user:phone'] as string | undefined);
+          const senderPhone = senderPhoneRaw
+            ? this.normalizePhone(senderPhoneRaw)
+            : undefined;
+          if (!senderPhone) {
+            return {
+              status: 'error',
+              error:
+                'Falta senderPhone para determinar tus tandas administradas.',
+            };
+          }
+
+          if (!args.groupId) {
+            return {
+              status: 'needs_group_selection',
+              message:
+                'Necesito que selecciones una tanda. Llama select_admin_group para mostrar la lista.',
+            };
+          }
+
+          const resolvedGroupId = this.parseGroupId(args.groupId);
+
           const groups = await this.supabase.query<{
             id: number;
             name: string;
@@ -318,13 +599,13 @@ export class PasatandaToolsService {
             contract_address: string | null;
             frequency_days: number;
             yield_enabled: boolean;
-            amount: number;
+            total_cycle_amount_usdc: number | null;
           }>(
-            `SELECT id, name, status, contract_address, frequency_days, yield_enabled, amount
+            `SELECT id, name, status, contract_address, frequency_days, yield_enabled, total_cycle_amount_usdc
              FROM groups
              WHERE group_whatsapp_id = $1 OR id::text = $1
              LIMIT 1`,
-            [args.groupId],
+            [resolvedGroupId],
           );
 
           if (!groups.length) {
@@ -332,6 +613,11 @@ export class PasatandaToolsService {
           }
 
           const group = groups[0];
+
+          if (toolContext) {
+            toolContext.state['user:selected_group_id'] = group.id;
+            toolContext.state['user:selected_group_name'] = group.name;
+          }
 
           // Obtener miembros
           const members = await this.supabase.query<{
@@ -356,7 +642,7 @@ export class PasatandaToolsService {
               contractAddress: group.contract_address,
               frequencyDays: group.frequency_days,
               yieldEnabled: group.yield_enabled,
-              amountUsd: group.amount,
+              amountUsd: group.total_cycle_amount_usdc,
               memberCount: members.length,
             },
             members: members.map((m) => ({
@@ -369,6 +655,220 @@ export class PasatandaToolsService {
         } catch (error) {
           this.logger.error(
             `Error consultando estado: ${(error as Error).message}`,
+          );
+          return { status: 'error', error: (error as Error).message };
+        }
+      },
+    });
+  }
+
+  // =========================================================================
+  // TOOL: Iniciar tanda (admin) — despliega contrato Soroban
+  // =========================================================================
+  get startTandaTool(): FunctionTool {
+    return new FunctionTool({
+      name: 'start_tanda',
+      description:
+        'Inicia una tanda en estado DRAFT: valida admin, despliega contrato en Soroban y marca el grupo como ACTIVE.',
+      parameters: z.object({
+        senderPhone: z
+          .string()
+          .optional()
+          .describe('Teléfono del admin que inicia la tanda'),
+        groupId: z
+          .string()
+          .optional()
+          .describe(
+            'ID del grupo. Si no se especifica, se debe pedir selección con select_admin_group.',
+          ),
+      }),
+      execute: async (args, toolContext?: ToolContext) => {
+        try {
+          const senderPhoneRaw =
+            args.senderPhone ??
+            (toolContext?.state?.['user:phone'] as string | undefined);
+          const senderPhone = senderPhoneRaw
+            ? this.normalizePhone(senderPhoneRaw)
+            : undefined;
+          if (!senderPhone) {
+            return {
+              status: 'error',
+              error:
+                'Falta senderPhone para validar permisos e iniciar la tanda.',
+            };
+          }
+
+          if (!args.groupId) {
+            if (toolContext) {
+              toolContext.state['user:pending_action'] = 'start_tanda';
+            }
+            return {
+              status: 'needs_group_selection',
+              message:
+                'Necesito que selecciones una tanda. Llama select_admin_group para mostrar la lista.',
+            };
+          }
+
+          const resolvedGroupId = this.parseGroupId(args.groupId);
+
+          const groups = await this.supabase.query<{
+            id: number;
+            name: string;
+            status: string;
+            contract_address: string | null;
+            total_cycle_amount_usdc: number | null;
+            frequency_days: number;
+            yield_enabled: boolean;
+          }>(
+            `SELECT id, name, status, contract_address, total_cycle_amount_usdc, frequency_days, yield_enabled
+             FROM groups
+             WHERE group_whatsapp_id = $1 OR id::text = $1
+             LIMIT 1`,
+            [resolvedGroupId],
+          );
+
+          if (!groups.length) {
+            return { status: 'error', error: 'Grupo no encontrado' };
+          }
+
+          const group = groups[0];
+          if (group.contract_address) {
+            return {
+              status: 'already_started',
+              message: `La tanda "${group.name}" ya tiene contrato: ${group.contract_address}.`,
+            };
+          }
+
+          if (group.status !== 'DRAFT') {
+            return {
+              status: 'error',
+              error: `La tanda debe estar en estado DRAFT para iniciarse (estado actual: ${group.status}).`,
+            };
+          }
+
+          const users = await this.supabase.query<{
+            id: string;
+            phone_number: string;
+            stellar_public_key: string | null;
+          }>(
+            `SELECT id, phone_number, stellar_public_key
+             FROM users
+             WHERE phone_number = $1 OR phone_number like $2
+             LIMIT 1`,
+            [senderPhone, `%${senderPhone.slice(-10)}`],
+          );
+
+          const user = users[0];
+          if (!user?.id) {
+            return {
+              status: 'error',
+              error: 'No encontré tu usuario. Regístrate primero.',
+            };
+          }
+
+          const adminMembership = await this.supabase.query<{
+            is_admin: boolean;
+          }>(
+            `SELECT is_admin
+             FROM memberships
+             WHERE user_id = $1 AND group_id = $2
+             LIMIT 1`,
+            [user.id, group.id],
+          );
+
+          if (!adminMembership[0]?.is_admin) {
+            return {
+              status: 'forbidden',
+              error: 'Solo un administrador puede iniciar la tanda.',
+            };
+          }
+
+          const members = await this.supabase.query<{
+            stellar_public_key: string | null;
+            turn_number: number;
+          }>(
+            `SELECT u.stellar_public_key, m.turn_number
+             FROM memberships m
+             JOIN users u ON u.id = m.user_id
+             WHERE m.group_id = $1
+             ORDER BY m.turn_number`,
+            [group.id],
+          );
+
+          const memberKeys = members
+            .map((m) => m.stellar_public_key)
+            .filter((k): k is string => Boolean(k));
+
+          if (memberKeys.length !== members.length) {
+            return {
+              status: 'error',
+              error:
+                'Faltan wallets Stellar (stellar_public_key) en uno o más miembros. Todos deben tener wallet antes de iniciar.',
+            };
+          }
+
+          const adminKey = user.stellar_public_key;
+          if (!adminKey) {
+            return {
+              status: 'error',
+              error:
+                'No tienes wallet Stellar registrada. Crea/conecta tu wallet antes de iniciar la tanda.',
+            };
+          }
+
+          // AmountPerRound en stroops (USDC 7 decimales) — aquí asumimos 1 USD == 1 USDC.
+          // Si el backend espera otra precisión/asset, ajustar en Soroban BE.
+          const amountUsd = Number(group.total_cycle_amount_usdc ?? 0);
+          if (!amountUsd) {
+            return {
+              status: 'error',
+              error:
+                'La tanda no tiene monto configurado. Define total_cycle_amount_usdc.',
+            };
+          }
+
+          const amountStroops = String(Math.round(amountUsd * 10 ** 7));
+
+          const deployment = await this.soroban.createGroup({
+            members: memberKeys,
+            amountStroops,
+            frequencyDays: group.frequency_days,
+            enableYield: Boolean(group.yield_enabled),
+            yieldShareBps: 7000,
+          });
+
+          const contractAddress = deployment.address;
+          if (!contractAddress) {
+            return {
+              status: 'error',
+              error:
+                'El backend de Soroban no devolvió contract address. Revisa logs del backend de pagos.',
+            };
+          }
+
+          await this.supabase.query(
+            `UPDATE groups
+             SET contract_address = $1, status = 'ACTIVE'
+             WHERE id = $2`,
+            [contractAddress, group.id],
+          );
+
+          if (toolContext) {
+            toolContext.state['user:selected_group_id'] = group.id;
+            toolContext.state['user:selected_group_name'] = group.name;
+            toolContext.state['user:pending_action'] = undefined;
+          }
+
+          return {
+            status: 'success',
+            groupId: group.id,
+            groupName: group.name,
+            contractAddress,
+            message: `✅ Tanda "${group.name}" iniciada. Contrato: ${contractAddress}.`,
+          };
+        } catch (error) {
+          this.logger.error(
+            `Error iniciando tanda: ${(error as Error).message}`,
           );
           return { status: 'error', error: (error as Error).message };
         }
@@ -415,8 +915,8 @@ export class PasatandaToolsService {
           const negotiation = await this.payments.negotiatePayment({
             orderId,
             amountUsd: args.amountUsd,
-            payTo: args.payTo ?? args.senderPhone,
-            details: args.details,
+            payTo: args.payTo,
+            description: args.details ?? orderId,
           });
 
           // Actualizar orden con datos de negociación
@@ -487,9 +987,34 @@ export class PasatandaToolsService {
       }),
       execute: async (args) => {
         try {
+          const rows = await this.supabase.query<{
+            amount_crypto_usdc: number;
+          }>(
+            `SELECT amount_crypto_usdc
+             FROM payment_orders
+             WHERE id = $1
+             LIMIT 1`,
+            [args.orderId],
+          );
+          const amountUsd = Number(rows[0]?.amount_crypto_usdc ?? 0);
+
+          const transactionId = args.extractedData?.reference;
+          if (!transactionId) {
+            return {
+              status: 'error',
+              error:
+                'No se encontró el transactionId/referencia en el comprobante. Asegúrate de extraer la referencia (transactionId).',
+            };
+          }
+
           const verification = await this.payments.verifyFiat({
             orderId: args.orderId,
-            proofMetadata: args.extractedData ?? {},
+            amountUsd,
+            proofMetadata: {
+              glosa: args.orderId,
+              time: args.extractedData?.date ?? new Date().toISOString(),
+              transactionId: transactionId,
+            },
           });
 
           await this.supabase.query(
@@ -540,6 +1065,7 @@ export class PasatandaToolsService {
       }),
       execute: async (args) => {
         try {
+          const phone = this.normalizePhone(args.phone);
           const users = await this.supabase.query<{
             id: string;
             phone_number: string;
@@ -550,7 +1076,7 @@ export class PasatandaToolsService {
              FROM users
              WHERE phone_number = $1 OR phone_number LIKE $2
              LIMIT 1`,
-            [args.phone, `%${args.phone.replace(/\D/g, '').slice(-10)}`],
+            [phone, `%${phone.slice(-10)}`],
           );
 
           if (!users.length) {
@@ -623,6 +1149,7 @@ export class PasatandaToolsService {
       }),
       execute: async (args, toolContext?: ToolContext) => {
         try {
+          const senderPhone = this.normalizePhone(args.senderPhone);
           const normalizedCode = args.code.trim();
           if (!normalizedCode) {
             return {
@@ -631,7 +1158,7 @@ export class PasatandaToolsService {
             };
           }
           const verified = await this.verification.confirmCode(
-            args.senderPhone,
+            senderPhone,
             normalizedCode,
             args.whatsappUsername,
           );
@@ -641,7 +1168,15 @@ export class PasatandaToolsService {
               toolContext.state['user:phone_verified'] = true;
               toolContext.state['user:phone_verified_at'] =
                 new Date().toISOString();
-              toolContext.state['user:phone'] = args.senderPhone;
+              toolContext.state['user:phone'] = senderPhone;
+            }
+
+            if (this.verificationStickerUrl) {
+              await this.messaging.sendSticker(
+                senderPhone,
+                { link: this.verificationStickerUrl },
+                { phoneNumberId: this.phoneNumberId },
+              );
             }
             return {
               status: 'verified',
@@ -685,6 +1220,8 @@ export class PasatandaToolsService {
           .describe('Nombre del invitado si está disponible'),
       }),
       execute: async (args, toolContext?: ToolContext) => {
+        this.logger.log('📰 Ejecutando respondToInvitationTool');
+        const invitedPhone = this.normalizePhone(args.invitedPhone);
         const inviteCode = args.inviteCode.trim();
         if (!inviteCode) {
           return { status: 'error', error: 'inviteCode vacío' };
@@ -703,7 +1240,7 @@ export class PasatandaToolsService {
             where invite_code = $1 and invited_phone = $2
             limit 1
           `,
-          [inviteCode, args.invitedPhone],
+          [inviteCode, invitedPhone],
         );
 
         const invitation = invitations[0];
@@ -757,8 +1294,8 @@ export class PasatandaToolsService {
 
         // ACCEPT: crear/actualizar usuario y membresía
         const user = await this.groupCreation.upsertUser({
-          phone: args.invitedPhone,
-          username: args.invitedName ?? args.invitedPhone,
+          phone: invitedPhone,
+          username: args.invitedName ?? invitedPhone,
           preferredCurrency:
             (toolContext?.state?.['user:preferred_currency'] as string) ??
             'USD',
@@ -790,9 +1327,17 @@ export class PasatandaToolsService {
           [user.userId, membershipId, invitation.id],
         );
 
+        if (this.welcomeStickerUrl) {
+          await this.messaging.sendSticker(
+            invitedPhone,
+            { link: this.welcomeStickerUrl },
+            { phoneNumberId: this.phoneNumberId },
+          );
+        }
+
         if (toolContext) {
           toolContext.state['user:selected_group_id'] = invitation.group_id;
-          toolContext.state['user:phone'] = args.invitedPhone;
+          toolContext.state['user:phone'] = invitedPhone;
         }
 
         return {
@@ -807,20 +1352,144 @@ export class PasatandaToolsService {
   }
 
   // =========================================================================
+  // TOOL: Elegir método de retiro del ganador
+  // =========================================================================
+  get choosePayoutMethodTool(): FunctionTool {
+    return new FunctionTool({
+      name: 'choose_payout_method',
+      description:
+        'Registra/ejecuta la selección de retiro del ganador del ciclo (FIAT/USDC/LATER). Para USDC intenta ejecutar payout en Soroban si hay contrato y wallet.',
+      parameters: z.object({
+        senderPhone: z.string().describe('Teléfono del ganador que elige'),
+        groupId: z
+          .string()
+          .describe('ID del grupo (id numérico o group_whatsapp_id)'),
+        cycleIndex: z
+          .number()
+          .optional()
+          .describe('Índice del ciclo (0-based) si está disponible'),
+        method: z.enum(['FIAT', 'USDC', 'LATER']).describe('Método de retiro'),
+      }),
+      execute: async (args, toolContext?: ToolContext) => {
+        const senderPhone = this.normalizePhone(args.senderPhone);
+        const resolvedGroupId = this.parseGroupId(args.groupId);
+        const cycleLabel =
+          typeof args.cycleIndex === 'number'
+            ? ` (ciclo #${args.cycleIndex + 1})`
+            : '';
+
+        if (toolContext) {
+          toolContext.state['payout:last_method'] = args.method;
+          toolContext.state['payout:last_group_id'] = resolvedGroupId;
+          if (typeof args.cycleIndex === 'number') {
+            toolContext.state['payout:last_cycle_index'] = args.cycleIndex;
+          }
+        }
+
+        if (args.method === 'LATER') {
+          return {
+            status: 'deferred',
+            message: `Perfecto${cycleLabel}. Cuando quieras retirar, vuelve a elegir un método.`,
+          };
+        }
+
+        if (args.method === 'FIAT') {
+          return {
+            status: 'queued',
+            message:
+              `Listo${cycleLabel}. Registré que quieres retirar a banco. ` +
+              'En esta versión el off-ramp FIAT aún no está integrado automáticamente.',
+          };
+        }
+
+        // USDC payout via Soroban
+        const groups = await this.supabase.query<{
+          id: number;
+          name: string;
+          contract_address: string | null;
+        }>(
+          `select id, name, contract_address
+           from groups
+           where id::text = $1 or group_whatsapp_id = $1
+           limit 1`,
+          [resolvedGroupId],
+        );
+
+        const group = groups[0];
+        if (!group?.contract_address) {
+          return {
+            status: 'error',
+            message:
+              'No tengo contrato asociado a esa tanda todavía. Primero debe estar activa.',
+          };
+        }
+
+        const users = await this.supabase.query<{
+          stellar_public_key: string | null;
+        }>(
+          `select stellar_public_key
+           from users
+           where phone_number = $1 or phone_number like $2
+           limit 1`,
+          [senderPhone, `%${senderPhone.slice(-10)}`],
+        );
+
+        const stellarPublicKey = users[0]?.stellar_public_key;
+        if (!stellarPublicKey) {
+          return {
+            status: 'error',
+            message:
+              'No encuentro tu wallet Stellar para hacer el payout. Completa tu registro primero.',
+          };
+        }
+
+        try {
+          const { txHash } = await this.soroban.payout(
+            group.contract_address,
+            stellarPublicKey,
+          );
+          return {
+            status: 'paid',
+            message:
+              `Payout USDC solicitado${cycleLabel} para "${group.name}".` +
+              (txHash ? ` Tx: ${txHash}` : ''),
+          };
+        } catch (error) {
+          this.logger.error(
+            `Error ejecutando payout USDC: ${(error as Error).message}`,
+          );
+          return {
+            status: 'error',
+            message:
+              'No pude ejecutar el payout USDC en este momento. Intenta más tarde.',
+          };
+        }
+      },
+    });
+  }
+
+  // =========================================================================
   // GETTER: Todas las tools como array
   // =========================================================================
   get allTools(): FunctionTool[] {
     return [
       this.createGroupTool,
+      this.selectAdminGroupTool,
       this.addParticipantTool,
       this.configureGroupTool,
       this.checkGroupStatusTool,
+      this.startTandaTool,
       this.createPaymentLinkTool,
       this.verifyPaymentProofTool,
       this.getUserInfoTool,
       this.verifyPhoneCodeTool,
       this.respondToInvitationTool,
+      this.choosePayoutMethodTool,
     ];
+  }
+
+  private normalizePhone(raw: string): string {
+    return String(raw ?? '').replace(/\D/g, '');
   }
 
   private async createInvitationCodeWithRetry(params: {
@@ -857,5 +1526,146 @@ export class PasatandaToolsService {
 
   private generateInviteCode(): string {
     return randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+  }
+
+  private parseGroupId(raw: string): string {
+    const trimmed = raw.trim();
+    const match = trimmed.match(/(\d+)$/);
+    return match ? match[1] : trimmed;
+  }
+
+  private async sendInvitationMessage(params: {
+    to: string;
+    groupName: string;
+    inviteCode: string;
+  }): Promise<void> {
+    const buttons: WhatsAppInteractiveButton[] = [
+      {
+        type: 'reply',
+        reply: { id: `invite_accept:${params.inviteCode}`, title: 'Aceptar' },
+      },
+      {
+        type: 'reply',
+        reply: {
+          id: `invite_decline:${params.inviteCode}`,
+          title: 'Rechazar',
+        },
+      },
+    ];
+
+    await this.messaging.sendInteractiveButtons(
+      params.to,
+      `📩 Te invitaron a unirte a la tanda "${params.groupName}".\n\nSelecciona una opción:`,
+      buttons,
+      {
+        phoneNumberId: this.phoneNumberId,
+        header: this.invitationImageUrl
+          ? { type: 'image', image: { link: this.invitationImageUrl } }
+          : undefined,
+        footer: `Código: ${params.inviteCode}`.slice(0, 60),
+      },
+    );
+
+    // Fallback por si el cliente del usuario no muestra botones
+    await this.messaging.sendText(
+      params.to,
+      `Si no ves botones, responde:\nACEPTAR ${params.inviteCode}\nRECHAZAR ${params.inviteCode}`,
+      { phoneNumberId: this.phoneNumberId },
+    );
+  }
+
+  private async sendAdminGroupSelectionList(params: {
+    to: string;
+    purpose:
+      | 'CONFIGURE_TANDA'
+      | 'CHECK_STATUS'
+      | 'ADD_PARTICIPANT'
+      | 'START_TANDA';
+  }): Promise<void> {
+    const to = this.normalizePhone(params.to);
+    const users = await this.supabase.query<{ id: string }>(
+      `
+        select id
+        from users
+        where phone_number = $1 or phone_number like $2
+        limit 1
+      `,
+      [to, `%${to.slice(-10)}`],
+    );
+
+    const userId = users[0]?.id;
+    if (!userId) {
+      await this.messaging.sendText(
+        to,
+        'No encontré tu usuario. Primero registra tu número y vuelve a intentar.',
+        { phoneNumberId: this.phoneNumberId },
+      );
+      return;
+    }
+
+    const adminGroups = await this.supabase.query<{
+      id: number;
+      name: string;
+      status: string;
+    }>(
+      `
+        select g.id, g.name, g.status
+        from memberships m
+        join groups g on g.id = m.group_id
+        where m.user_id = $1 and m.is_admin = true
+        order by g.id desc
+        limit 10
+      `,
+      [userId],
+    );
+
+    if (!adminGroups.length) {
+      await this.messaging.sendText(
+        to,
+        'No tienes tandas como administrador todavía.',
+        { phoneNumberId: this.phoneNumberId },
+      );
+      return;
+    }
+
+    const prefix =
+      params.purpose === 'CONFIGURE_TANDA'
+        ? 'tanda:configure:'
+        : params.purpose === 'ADD_PARTICIPANT'
+          ? 'tanda:add_participant:'
+          : params.purpose === 'START_TANDA'
+            ? 'tanda:start:'
+            : 'tanda:status:';
+
+    const sections: WhatsAppInteractiveListSection[] = [
+      {
+        title: 'Tus tandas',
+        rows: adminGroups.slice(0, 10).map((g) => ({
+          id: `${prefix}${g.id}`.slice(0, 200),
+          title: String(g.name ?? `Tanda ${g.id}`).slice(0, 24),
+          description: `Estado: ${g.status}`.slice(0, 72),
+        })),
+      },
+    ];
+
+    const bodyText =
+      params.purpose === 'CONFIGURE_TANDA'
+        ? 'Selecciona la tanda que deseas configurar:'
+        : params.purpose === 'ADD_PARTICIPANT'
+          ? 'Selecciona la tanda donde quieres agregar al participante:'
+          : params.purpose === 'START_TANDA'
+            ? 'Selecciona la tanda que deseas iniciar:'
+            : 'Selecciona la tanda que deseas consultar:';
+
+    await this.messaging.sendInteractiveList(
+      to,
+      bodyText,
+      'Ver tandas',
+      sections,
+      {
+        phoneNumberId: this.phoneNumberId,
+        header: 'Tandas administradas',
+      },
+    );
   }
 }
