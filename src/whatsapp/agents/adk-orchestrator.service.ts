@@ -191,11 +191,11 @@ export class AdkOrchestratorService implements OnModuleInit {
   - Sólo puedes llamar \`verify_phone_code\`.
 
   INTENCIONES PRINCIPALES:
-  - **VERIFICAR TELÉFONO**: el usuario envía un OTP (p.ej. ABC123).
+  - **VERIFICAR TELÉFONO**: el usuario envía un OTP (p.ej. ABC123) con un mensaje tipo "mi codigo de verificacion es ..., El codigo tiene 6 CARACTERES A DIFERENCIA DEL DE INVITACION QUE TIENE 8.
     - Extrae el código dentro del agente y pásalo como argumento \`code\` al tool \`verify_phone_code\`. No envíes todo el texto al tool.
     - Llama \`verify_phone_code\` con \`senderPhone\` y el código extraído (el codigo de verificacion telefonica es de 6 alfanumericos)
   - **CREAR/CONFIGURAR/CONSULTAR**: transfiere a \`game_master\`.
-  - **GESTIONAR INVITACIONES A TANDAS** el usuario envia un codigo de 8 caracteres alfanumericos (P.EJ. ABCD1234), en ese caso redirige a \`game_master\`).
+  - **GESTIONAR INVITACIONES A TANDAS** el usuario envia un codigo de 8 caracteres alfanumericos (P.EJ. ABCD1234) con un mensaje tipo "EL codigo del grupo/tanda es ..." a diferencia del de verificacion, en ese caso redirige a \`game_master\`).
   - **PAGAR**: transfiere a \`treasurer\`.
   - **RETIRO GANADOR**: si recibes un texto como "payout:fiat:<groupId>:<cycleIndex>", "payout:usdc:..." o "payout:later:...", transfiere a \`treasurer\`.
   - **COMPROBANTE**: transfiere a \`validator\` (o \`treasurer\` si ya hay orden y sólo falta confirmar).

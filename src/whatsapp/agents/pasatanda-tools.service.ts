@@ -24,6 +24,7 @@ export class PasatandaToolsService {
   private readonly paymentPage: string;
   private readonly phoneNumberId: string;
   private readonly groupCreatedStickerUrl: string;
+  private readonly groupCreatedImageStellarUrl: string;
   private readonly welcomeStickerUrl: string;
   private readonly verificationStickerUrl: string;
   private readonly invitationImageUrl: string;
@@ -55,6 +56,10 @@ export class PasatandaToolsService {
     );
     this.invitationImageUrl = this.config.get<string>(
       'WHATSAPP_IMAGE_INVITATION',
+      '',
+    );
+    this.groupCreatedImageStellarUrl = this.config.get<string>(
+      'WHATSAPP_IMAGE_GROUP_CREATED_STELLAR',
       '',
     );
   }
@@ -852,6 +857,32 @@ export class PasatandaToolsService {
              WHERE id = $2`,
             [contractAddress, group.id],
           );
+
+          const stellarExpertUrl = `https://stellar.expert/explorer/testnet/contract/${contractAddress}`;
+
+          // Enviar mensaje interactivo con CTA URL del contrato
+          try {
+            await this.messaging.sendInteractiveCTA(
+              senderPhone,
+              `✅ ¡Tanda "${group.name}" iniciada exitosamente!\n\nTu contrato inteligente ha sido desplegado en Soroban. Haz clic en el botón para ver los detalles del contrato en el explorador de Stellar.`,
+              stellarExpertUrl,
+              'Ver Contrato en Stellar Expert',
+              {
+                phoneNumberId: this.phoneNumberId,
+                header: this.groupCreatedStickerUrl
+                  ? {
+                      type: 'image',
+                      image: { link: this.groupCreatedImageStellarUrl },
+                    }
+                  : undefined,
+                footer: `Contrato: ${contractAddress.substring(0, 16)}...`,
+              },
+            );
+          } catch (msgError) {
+            this.logger.warn(
+              `No se pudo enviar mensaje CTA de tanda iniciada: ${(msgError as Error).message}`,
+            );
+          }
 
           if (toolContext) {
             toolContext.state['user:selected_group_id'] = group.id;

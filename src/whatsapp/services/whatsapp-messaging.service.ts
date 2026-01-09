@@ -412,6 +412,50 @@ export class WhatsAppMessagingService {
   }
 
   // =========================================================================
+  // MENSAJE INTERACTIVO CON URL (CTA)
+  // =========================================================================
+  async sendInteractiveCTA(
+    to: string,
+    body: string,
+    ctaUrl: string,
+    buttonText: string,
+    options?: {
+      phoneNumberId?: string;
+      header?:
+        | { type: 'text'; text: string }
+        | { type: 'image'; image: { link: string } };
+      footer?: string;
+      replyToMessageId?: string;
+    },
+  ): Promise<WhatsAppMessageResponse> {
+    const payload: Record<string, unknown> = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'cta_url',
+        body: { text: body },
+        action: {
+          name: 'cta_url',
+          parameters: {
+            display_text: buttonText,
+            url: ctaUrl,
+          },
+        },
+        ...(options?.header && { header: options.header }),
+        ...(options?.footer && { footer: { text: options.footer } }),
+      },
+    };
+
+    if (options?.replyToMessageId) {
+      payload.context = { message_id: options.replyToMessageId };
+    }
+
+    return this.sendMessage(payload, options?.phoneNumberId);
+  }
+
+  // =========================================================================
   // MENSAJE INTERACTIVO CON LISTA
   // =========================================================================
   async sendInteractiveList(
